@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HPLC Analyzer — Documentation</title>
+<style>
+  /* Mirrors the analyzer's tokens so the help page feels like part of the app. */
+  :root {
+    --bg: #fafbfc;
+    --surface: #ffffff;
+    --surface2: #eef0f4;
+    --text: #0e1117;               /* darker body text */
+    --muted: #4b5165;              /* AA-compliant on white */
+    --border: #d1d5dd;             /* clearer separators */
+    --border2: #e2e5eb;
+    --accent: #1d4ed8;             /* darker for contrast */
+    --accent-light: #eff6ff;
+    --accent2: #0e7490;
+    --accent2-light: #ecfeff;
+    --code-bg: #eef0f4;
+    --formula-bg: #f4f6fb;
+  }
+  html.dark {
+    --bg: #0b0c0f;
+    --surface: #15171d;
+    --surface2: #1f222b;
+    --text: #f0f2f7;
+    --muted: #a8aec0;              /* much more legible than #8a90a8 was */
+    --border: #353945;
+    --border2: #262a36;
+    --accent: #93c5fd;
+    --accent-light: #1e3a5f30;
+    --accent2: #67e8f9;
+    --accent2-light: #164e6330;
+    --code-bg: #1f222b;
+    --formula-bg: #15171d;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  header {
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header .logo {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: -0.3px;
+  }
+  header .logo span { color: var(--accent); }
+  header .crumb {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+  header #themeToggle {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    width: 32px;
+    height: 32px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size:16px;
+    transition: all 0.15s;
+  }
+  header #themeToggle:hover { background: var(--surface2); color: var(--text); }
+
+  main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 40px 28px 100px;
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 48px;
+  }
+
+  /* sidebar nav */
+  nav.toc {
+    position: sticky;
+    top: 80px;
+    align-self: start;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+  }
+  nav.toc h4 {
+    margin: 0 0 10px;
+    font-size:12px;
+    color: var(--muted);
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  nav.toc ol { margin: 0; padding: 0; list-style: none; }
+  nav.toc li { margin-bottom: 4px; }
+  nav.toc a {
+    color: var(--muted);
+    text-decoration: none;
+    display: block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border-left: 2px solid transparent;
+    transition: all 0.12s;
+  }
+  nav.toc a:hover { color: var(--text); background: var(--surface2); }
+  nav.toc a.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-light); }
+
+  article { min-width: 0; }
+  article > header { /* override the page header rules — this is article header */
+    all: unset;
+    display: block;
+    margin-bottom: 32px;
+  }
+  h1 {
+    font-size: 30px;
+    margin: 0 0 8px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size:15px;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.3px;
+  }
+
+  h2 {
+    font-size: 20px;
+    margin: 40px 0 12px;
+    padding-top: 8px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    border-top: 1px solid var(--border2);
+    padding-top: 28px;
+  }
+  h2:first-of-type { border-top: 0; padding-top: 0; }
+  h2 .num {
+    color: var(--accent);
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 500;
+    font-size:14px;
+    margin-right: 10px;
+    letter-spacing: 1px;
+  }
+  h3 {
+    font-size:15px;
+    margin: 22px 0 8px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  p { margin: 0 0 12px; font-size:15px; }
+  p.lead { font-size:16px; color: var(--text); }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; font-size:15px; }
+  li { margin-bottom: 4px; }
+  li > strong { color: var(--text); }
+
+  code, kbd, .mono { font-family: 'IBM Plex Mono', monospace; font-size: 0.92em; }
+  code {
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--accent);
+    border: 1px solid var(--border2);
+  }
+  kbd {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    padding: 1px 7px;
+    border-radius: 4px;
+    font-size:13px;
+    color: var(--text);
+    box-shadow: 0 1px 0 var(--border);
+  }
+
+  /* Math / formula blocks */
+  .formula {
+    background: var(--formula-bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin: 14px 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:14px;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+  .formula .where { color: var(--muted); font-size:13px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .formula em { color: var(--accent2); font-style: normal; font-weight: 600; }
+
+  /* Definition list / parameter table */
+  table.params {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 16px;
+    font-size:14px;
+  }
+  table.params th, table.params td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border2);
+    vertical-align: top;
+  }
+  table.params th {
+    background: var(--surface2);
+    font-weight: 600;
+    color: var(--muted);
+    font-size:13px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom-color: var(--border);
+  }
+  table.params td:first-child { font-family: 'IBM Plex Mono', monospace; color: var(--accent); width: 110px; }
+  table.params td:last-child { color: var(--muted); }
+
+  /* Note callouts */
+  .note {
+    background: var(--accent-light);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 14px 0;
+    font-size:14px;
+    color: var(--text);
+  }
+  .note::before {
+    content: "ⓘ";
+    margin-right: 6px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .note.warn {
+    background: #fff7ed;
+    border-color: #fb923c;
+    color: #7c2d12;
+  }
+  .note.warn::before { content: "⚠"; color: #c2410c; }
+  html.dark .note.warn { background: #7c2d1230; color: #fed7aa; }
+
+  /* keyboard shortcut grid */
+  .shortcuts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 8px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0;
+    font-size:14px;
+  }
+  .shortcuts .keys { white-space: nowrap; }
+
+  footer {
+    margin-top: 60px;
+    padding: 24px 0 0;
+    border-top: 1px solid var(--border2);
+    text-align: center;
+    color: var(--muted);
+    font-size:13px;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.5px;
+  }
+
+  /* mobile */
+  @media (max-width: 720px) {
+    main {
+      grid-template-columns: 1fr;
+      gap: 24px;
+      padding: 24px 18px 60px;
+    }
+    nav.toc {
+      position: relative;
+      top: auto;
+      border-bottom: 1px solid var(--border2);
+      padding-bottom: 16px;
+    }
+    h1 { font-size: 24px; }
+  }
+
+  /* IBM Plex from Google Fonts */
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">HPLC<span>.</span>analyzer</div>
+  <div class="crumb">/ documentation</div>
+  <button id="themeToggle" title="Toggle dark mode" onclick="toggleTheme()">🌙</button>
+</header>
+
+<main>
+  <nav class="toc" id="toc">
+    <h4>Contents</h4>
+    <ol>
+      <li><a href="#workflow">Workflow</a></li>
+      <li><a href="#interface">Interface</a></li>
+      <li><a href="#mouse">Mouse &amp; keys</a></li>
+      <li><a href="#extraction">Signal extraction</a></li>
+      <li><a href="#baseline">Baseline correction</a></li>
+      <li><a href="#smoothing">Smoothing</a></li>
+      <li><a href="#detection">Peak detection</a></li>
+      <li><a href="#fitting">Peak fitting</a></li>
+      <li><a href="#metrics">Metrics</a></li>
+      <li><a href="#rejection">Rejection rules</a></li>
+      <li><a href="#interpretation">Interpretation</a></li>
+      <li><a href="#exports">CSV &amp; PDF exports</a></li>
+      <li><a href="#privacy">Privacy</a></li>
+    </ol>
+  </nav>
+
+  <article>
+    <header>
+      <h1>HPLC Analyzer Documentation</h1>
+      <div class="subtitle">v1.2.x · how the tool reads your TDMS, finds peaks, fits them, and exports the results</div>
+    </header>
+
+    <p class="lead">
+      The analyzer takes a National Instruments TDMS file containing one or more
+      chromatograms, lets you pick which traces to analyze, and produces a peak
+      list with retention time, area, and a fit-quality score for each peak.
+      Everything runs locally in your browser.
+    </p>
+
+    <!-- ────────────────────────── -->
+    <h2 id="workflow"><span class="num">01</span>Workflow</h2>
+    <p>
+      A typical session looks like this:
+    </p>
+    <ol>
+      <li>Drag-and-drop a <code>.tdms</code> file onto the dropzone (or click to browse).</li>
+      <li>The tool auto-detects which TDMS groups are signal traces (time + UV-like channel) and selects the ones that look like real chromatograms by default.</li>
+      <li>An initial fit runs automatically. You see the chromatograms, the baseline, the fitted peaks, and the peak table.</li>
+      <li>Adjust smoothing, threshold, baseline, or peak shape — the fit re-runs with a 250 ms debounce.</li>
+      <li>Use the chart and the table to curate peaks: click a peak to remove it, or click the <code>×</code> button on its table row.</li>
+      <li>Export results as CSV (raw + fitted curves + peak summary) or PDF (cover + per-group page with chart and peak table).</li>
+    </ol>
+
+    <!-- ────────────────────────── -->
+    <h2 id="interface"><span class="num">02</span>Interface</h2>
+
+    <h3>Header</h3>
+    <ul>
+      <li><strong>↓ TDMS CSV</strong> — exports raw TDMS channels (legacy, for non-HPLC use).</li>
+      <li><strong>⌥ Inspect raw</strong> — switches to the original TDMS tree+tabs viewer for power users (properties, raw values, channel info).</li>
+      <li><strong>↓ CSV</strong> — exports selected chromatograms with raw signal, baseline, corrected signal, smoothed signal, fit sum, and a peak summary block.</li>
+      <li><strong>↓ PDF report</strong> — multi-page report: cover with overview, then one page per analyzed group with chart and peak table.</li>
+      <li><strong>?</strong> — opens this page.</li>
+      <li><strong>🌙 / ☀️</strong> — toggles light/dark mode.</li>
+    </ul>
+
+    <h3>Left panel — Chromatograms</h3>
+    <p>
+      Lists the signal groups detected in your TDMS file. The dropdown at the top filters by category:
+      <em>Signals only</em> (default), <em>Pressure</em>, <em>Stabilization</em>, or <em>All</em>.
+      The <em>All / None / Invert</em> buttons act on the currently visible category only.
+      Click a row to toggle its selection. The gear icon (<code>⚙</code>) on each row lets you override
+      which channel is the time axis and which is the signal — useful when auto-detection picks the wrong one.
+    </p>
+    <p>
+      The <code>×</code> button on each row <strong>removes that chromatogram from the in-memory list</strong>.
+      The TDMS file on disk is never modified — if you want the signal back, re-open the file. Useful for
+      hiding pressure or stabilization traces you don't need.
+    </p>
+
+    <h3>Right panel — Chromatogram view</h3>
+    <p>
+      Shows the raw signal (faded), the estimated baseline (dashed), and each fitted peak (solid)
+      with its retention time labeled at the top. The toolbar above the chart controls the analysis parameters; changes auto-trigger a re-fit.
+    </p>
+
+    <!-- ────────────────────────── -->
+    <h2 id="mouse"><span class="num">03</span>Mouse &amp; keyboard</h2>
+    <p>
+      The chart supports panning, axis-restricted zooming, and direct peak editing.
+    </p>
+
+    <div class="shortcuts">
+      <span class="keys"><kbd>drag</kbd></span>
+      <span>Pan the view in both axes.</span>
+
+      <span class="keys"><kbd>wheel</kbd></span>
+      <span>Zoom around the cursor. Honors the <strong>XY / X / Y</strong> mode toggle in the chart's top-left.</span>
+
+      <span class="keys"><kbd>shift</kbd> + <kbd>wheel</kbd></span>
+      <span>Force X-axis-only zoom (ignores the mode toggle).</span>
+
+      <span class="keys"><kbd>ctrl</kbd> / <kbd>⌘</kbd> + <kbd>wheel</kbd></span>
+      <span>Force Y-axis-only zoom.</span>
+
+      <span class="keys"><kbd>shift</kbd> + <kbd>drag</kbd></span>
+      <span>Box zoom. The selection respects the <strong>XY / X / Y</strong> mode: in X-only mode the selection becomes a vertical band that zooms only the X-axis (and similarly for Y-only).</span>
+
+      <span class="keys"><kbd>double-click</kbd></span>
+      <span>Reset the view to fit all selected data.</span>
+    </div>
+
+    <p>
+      The three buttons next to the mode toggle are <code>+</code> step zoom in, <code>−</code> step zoom out, and <code>⤢</code> reset.
+      All three honor the active X / Y / XY mode.
+    </p>
+    <p>
+      To remove a peak from the result, hover its row in the peak table and click the <code>×</code> button on the right.
+      The chart and the Area % column update immediately. The fit itself isn't recomputed; you are curating the output.
+    </p>
+
+    <!-- ────────────────────────── -->
+    <h2 id="extraction"><span class="num">04</span>Signal extraction</h2>
+    <p>
+      For each TDMS group, the analyzer needs one channel for the time axis and one for the signal.
+      Auto-detection prefers channels named:
+    </p>
+    <table class="params">
+      <thead><tr><th>Role</th><th>Recognized names (case-insensitive)</th></tr></thead>
+      <tbody>
+        <tr><td>time</td><td>time, t, temps, sec, seconds, min, minutes</td></tr>
+        <tr><td>signal</td><td>DC, signal, UV, AU, mAU, absorb, absorbance, response, intensity, y</td></tr>
+      </tbody>
+    </table>
+    <p>
+      Groups whose name suggests pressure (<code>P_…</code>, <code>Pressure</code>, <code>bar</code>) are categorized
+      as <em>Pressure</em> rather than <em>Signal</em>. Names containing <code>stabilization</code> go into <em>Stabilization</em>.
+      You can always switch the filter and analyze any of these — the categorization just controls what's pre-selected.
+    </p>
+
+    <!-- ────────────────────────── -->
+    <h2 id="baseline"><span class="num">05</span>Baseline correction</h2>
+    <p>
+      HPLC baselines drift slowly over a run (column equilibration, mobile-phase composition changes, detector
+      lamp warm-up). The analyzer applies a <strong>smart rolling-ball baseline</strong> automatically — there
+      is no toggle. The algorithm:
+    </p>
+
+    <ol>
+      <li>Detect rough local maxima of the lightly smoothed signal and measure each one's full-width above its half-maximum.</li>
+      <li>Pick a ball radius equal to ≈ <code>2 × </code>the widest peak's half-max width. This guarantees no real peak fits entirely under the ball — so peaks are never eroded — while the ball is still small enough to track slow baseline drift.</li>
+      <li>Apply morphological opening: a running minimum (erosion) over a window of radius <code>r</code>, followed by a running maximum (dilation) over the same window. The result is the lower envelope of the signal.</li>
+      <li>Smooth the envelope with a window of <code>r/4</code> samples to make the baseline curve continuous rather than piecewise-constant.</li>
+    </ol>
+
+    <p>
+      The fitter then operates on the corrected signal (<code>raw − baseline</code>). The estimated baseline is drawn
+      as a dashed line on the chart so you can see exactly what was subtracted.
+    </p>
+
+    <h3>Why no toggle anymore</h3>
+    <p>
+      An earlier version had a "Subtract baseline" checkbox. The toggle existed because the previous baseline algorithm
+      (a Gaussian-smoother variant of ALS) failed on very wide peaks: a peak whose width exceeded the smoother's scale
+      would be treated as drift and partially subtracted. Rolling ball with auto-radius doesn't have that failure mode —
+      its scale adapts to the data. Benchmarks across seven scenarios (flat baseline, constant offset, linear drift,
+      gradient hump, pre-corrected data, wide single peak, low SNR) show rolling ball matching or beating the old
+      algorithm in every case. The toggle was redundant UI.
+    </p>
+
+    <h3>Audit column in CSV and PDF</h3>
+    <p>
+      Even with a robust algorithm, baseline subtraction always changes the reported peak area — usually by a small
+      amount. For full transparency, the CSV peak summary and the PDF peak table both include an <code>area_no_baseline</code>
+      column showing what each peak's area would have been if no baseline were subtracted at all. Comparing the two columns
+      lets you sanity-check borderline cases: if rolling-ball area and no-baseline area agree closely, the baseline subtraction is
+      doing its job; if they differ a lot, look at the chart to verify the dashed baseline curve looks reasonable.
+    </p>
+    <p>
+      The audit fit is computed lazily — only when you export. It can take a few seconds on long traces with messy raw
+      signal because peak detection on the un-corrected signal is intrinsically harder. You'll see a brief "Computing
+      no-baseline audit fit" toast during export.
+    </p>
+
+    <!-- ────────────────────────── -->
+    <h2 id="smoothing"><span class="num">06</span>Smoothing</h2>
+    <p>
+      A boxcar (moving-average) smoother with a user-set window (default 5 points) is applied before
+      peak detection. The window must be <strong>odd</strong> — a centered moving average needs the same
+      number of points on each side of the center sample, which only works for odd window sizes. If you
+      type an even value, the field snaps it up to the next odd when you leave the field. This reduces
+      noise spikes that would otherwise be flagged as peaks. Smoothing
+      is used <em>only</em> for detection and seed-parameter estimation — the actual fit runs on the
+      unsmoothed (but baseline-corrected) signal.
+    </p>
+
+    <!-- ────────────────────────── -->
+    <h2 id="detection"><span class="num">07</span>Peak detection</h2>
+    <p>
+      A point is a peak candidate if all of these hold:
+    </p>
+    <ol>
+      <li>It's a local maximum: <code>y[i−1] &lt; y[i] ≥ y[i+1]</code>.</li>
+      <li>Its height is at least <strong>min height %</strong> of the trace maximum (default 2 %).</li>
+      <li>It rises at least <strong>5 σ</strong> above the noise floor, where σ is estimated from the median absolute deviation of the corrected signal.</li>
+      <li>Its <strong>prominence</strong> (height above the highest valley separating it from a taller neighbor) is at least <code>4 σ</code> of the noise. This filters wiggles that sit on top of larger features.</li>
+      <li>Within ±<strong>min separation</strong> time units, it is the tallest local maximum (window-max rule).</li>
+    </ol>
+
+    <p>
+      The min-separation rule prevents a single noisy peak top from being flagged multiple times. The prominence rule
+      prevents shoulders of one peak from being detected as separate peaks of their own.
+    </p>
+
+    <h3>Adding peaks the auto-detector misses</h3>
+    <p>
+      Real chromatograms sometimes contain genuine peaks that the auto-detector skips — typically small peaks
+      sitting close to the noise floor, or shoulders that fail the prominence rule. The <strong>+ peak</strong>
+      button on the chart toolbar enters a manual-add mode: click anywhere on the chart, near a peak you can see,
+      and the analyzer fits an EMG (or Gaussian) seeded at that location.
+    </p>
+    <ul>
+      <li>The click position is snapped to the nearest local maximum within ±5 samples — you don't need to click exactly on the peak top.</li>
+      <li>Manual peaks bypass the valley-boundary rule, so they can be placed close to existing peaks if needed.</li>
+      <li>The fit-quality threshold is more permissive than for auto-detection (R² ≥ 0.3 instead of 0.5), since the user is asserting a peak is here.</li>
+      <li>Manual peaks integrate into the same peak list as auto-detected ones — same Area %, same × delete button, same export columns. They're flagged internally as <code>manual</code> but treated identically in the report.</li>
+      <li>Re-fitting (changing any parameter) discards manual peaks along with auto-detected ones — they're a curation step, not a permanent annotation. Add them last.</li>
+    </ul>
+
+    <!-- ────────────────────────── -->
+    <h2 id="fitting"><span class="num">08</span>Peak fitting</h2>
+
+    <h3>Window selection</h3>
+    <p>
+      Each detected peak gets its own <em>fit window</em>. The window expands outward from the peak's
+      position until the smoothed signal drops below 1 % of the peak's height — but it never crosses
+      the valley to a neighboring peak. Bounding by the inter-peak valleys is what stops one peak's
+      tail from swallowing its neighbors and producing degenerate, over-wide fits.
+    </p>
+
+    <h3>X-range restriction</h3>
+    <p>
+      The <strong>↻ Re-Fit</strong> button fits peaks <em>only within the current X range</em> visible on the chart.
+      This lets you focus the analysis on a region of interest: pan or zoom the chart to frame the time window you care about,
+      then click Re-Fit. Data outside the view boundaries is excluded from peak detection, baseline estimation, and curve fitting.
+    </p>
+    <p>
+      Zooming and panning are purely visual — they never trigger a fit on their own. The fit is always an explicit action
+      (clicking Re-Fit, or changing a parameter which auto-refits). To fit the entire trace again, double-click the chart
+      (or press the <strong>⤢</strong> reset button) to restore the full view, then Re-Fit.
+    </p>
+
+    <h3>Models</h3>
+    <p>
+      Two peak shapes are available. <strong>EMG</strong> is the default and recommended for HPLC because real
+      column peaks tail.
+    </p>
+
+    <div class="formula">
+      <em>EMG</em> &nbsp; (Exponentially Modified Gaussian)<br>
+      f(t) &nbsp;=&nbsp; (A / 2τ) · exp(σ² / 2τ² − (t − μ) / τ) · erfc(z)<br>
+      z &nbsp;&nbsp; =&nbsp; (σ/τ − (t − μ)/σ) / √2
+      <div class="where">
+        A = peak area &nbsp;·&nbsp; μ = Gaussian centre &nbsp;·&nbsp; σ = Gaussian width &nbsp;·&nbsp; τ = exponential decay (column tailing)
+      </div>
+    </div>
+
+    <div class="formula">
+      <em>Gaussian</em><br>
+      f(t) &nbsp;=&nbsp; A · exp(−(t − μ)² / 2σ²)
+    </div>
+
+    <p>
+      The implementation uses a numerically stable form of the EMG that switches between
+      direct-erfc and erfcx-asymptotic branches depending on the magnitude of <code>z</code>, with
+      explicit zero-clamping for the deep tails to avoid <code>0 × ∞</code> situations.
+    </p>
+
+    <h3>Algorithm</h3>
+    <p>
+      Levenberg-Marquardt non-linear least squares with box constraints. Bounds:
+    </p>
+    <table class="params">
+      <thead><tr><th>Parameter</th><th>Lower</th><th>Upper</th></tr></thead>
+      <tbody>
+        <tr><td>A</td><td>0</td><td>+∞</td></tr>
+        <tr><td>μ</td><td>t<sub>lo</sub></td><td>t<sub>hi</sub></td></tr>
+        <tr><td>σ</td><td>dt / 2</td><td>window width</td></tr>
+        <tr><td>τ</td><td>0</td><td>window width</td></tr>
+      </tbody>
+    </table>
+    <p>
+      Bounds on σ and τ enforce physically meaningful values. <code>τ &gt; 0</code> means peaks can only tail (right-skewed),
+      not lead — which is what real chromatographic peaks do.
+    </p>
+
+    <!-- ────────────────────────── -->
+    <h2 id="metrics"><span class="num">09</span>Metrics</h2>
+    <table class="params">
+      <thead><tr><th>Symbol</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td>tR</td><td>Retention time. The location of the maximum of the fitted curve. For an EMG it sits to the right of μ by approximately τ.</td></tr>
+        <tr><td>Height</td><td>Maximum value of the fitted curve.</td></tr>
+        <tr><td>Area</td><td>Integrated area under the fitted curve. For EMG, this equals the parameter A directly. For Gaussian: <code>A · σ · √(2π)</code>.</td></tr>
+        <tr><td>Area %</td><td>Peak's share of the total area for that group, in percent. The values within a group sum to 100.</td></tr>
+        <tr><td>FWHM</td><td>Full width at half maximum, computed numerically on the fitted curve.</td></tr>
+        <tr><td>σ</td><td>Gaussian width parameter from the fit.</td></tr>
+        <tr><td>τ</td><td>Exponential decay parameter (EMG only). Larger τ ⇒ stronger tailing.</td></tr>
+        <tr><td>Asym</td><td>USP asymmetry factor at 10 % peak height: <code>b/a</code>, where <code>a</code> is the leading half-width and <code>b</code> is the trailing half-width.</td></tr>
+        <tr><td>R²</td><td>Coefficient of determination of the fit. 1.000 = perfect fit.</td></tr>
+      </tbody>
+    </table>
+
+    <p>
+      The on-screen table shows tR, Height, Area, Area %, and R². The CSV and PDF exports include the full set including σ, τ, FWHM, and Asym.
+    </p>
+
+    <!-- ────────────────────────── -->
+    <h2 id="rejection"><span class="num">10</span>Rejection rules</h2>
+    <p>
+      A fitted peak is discarded — it doesn't appear in the table or chart — if any of these hold:
+    </p>
+    <ul>
+      <li>R² &lt; 0.5 &nbsp; (fit is incoherent with the data).</li>
+      <li>σ &lt; 1.2 · dt &nbsp; (the peak is narrower than two samples — almost certainly a noise spike).</li>
+      <li>height ≤ 0 or non-finite (degenerate fit).</li>
+    </ul>
+    <p>
+      An additional safety net runs after fitting: if two fitted peaks happen to converge to retention times within
+      <em>min separation</em> of each other, the one with the worse R² is dropped.
+    </p>
+
+    <!-- ────────────────────────── -->
+    <h2 id="interpretation"><span class="num">11</span>Interpretation guide</h2>
+    <table class="params">
+      <thead><tr><th>Symptom</th><th>Likely cause</th></tr></thead>
+      <tbody>
+        <tr><td>Asym &gt; 1.5</td><td>Significant peak tailing. Often column ageing, dead volume, secondary interactions, or overloading.</td></tr>
+        <tr><td>Asym &lt; 0.9</td><td>Peak fronting. Usually column overload or void formation at the inlet.</td></tr>
+        <tr><td>R² &lt; 0.95</td><td>The peak shape doesn't match the model. Most often: co-elution with a neighbor, distorted peak from an injection problem, or an EMG peak being fit with a Gaussian.</td></tr>
+        <tr><td>Many spurious peaks</td><td>Try increasing <em>min height %</em> or smoothing window. Real peaks should be clearly above the noise floor — the 5σ rule should suppress most noise but very noisy data may still trigger.</td></tr>
+        <tr><td>Real peaks missed</td><td>Lower the <em>min height %</em>, or check whether baseline correction is over-subtracting. Disable the baseline option to confirm.</td></tr>
+        <tr><td>Two peaks merged into one</td><td>Reduce <em>min separation</em>, or look at the chart — the inter-peak valley may be too shallow for the prominence filter to keep both.</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ────────────────────────── -->
+    <h2 id="exports"><span class="num">12</span>CSV &amp; PDF exports</h2>
+
+    <h3>CSV</h3>
+    <p>
+      One column block per selected group, plus a peak summary appended at the bottom. Each block contains:
+    </p>
+    <ul>
+      <li><code>group/time</code> — the time axis</li>
+      <li><code>group/&lt;signal channel&gt;</code> — the raw signal</li>
+      <li><code>group/baseline</code> — the estimated baseline</li>
+      <li><code>group/corrected</code> — raw minus baseline</li>
+      <li><code>group/smoothed</code> — the smoothed corrected signal</li>
+      <li><code>group/fit_sum</code> — the sum of all fitted curves at each sample</li>
+    </ul>
+    <p>
+      The peak summary table at the end has columns <code>group, peak_n, tR, height, area, area_no_baseline, fwhm, sigma, tau, asymmetry, r2</code>.
+      The locale-appropriate separator is detected automatically (semicolon for European locales that use comma as decimal mark, comma elsewhere).
+    </p>
+
+    <h3>PDF</h3>
+    <p>
+      Cover page with file metadata and an overview chart of all selected groups, then one page per analyzed group with that group's
+      chart, the per-peak table (#, tR, Height, Area, Area (no BL), Area %, FWHM, sigma, tau, Asym, R2), and a summary
+      (peak count, total area, mean R², mean asymmetry).
+    </p>
+
+    <!-- ────────────────────────── -->
+    <h2 id="privacy"><span class="num">13</span>Privacy</h2>
+    <p>
+      The application is a single HTML file that runs entirely in your browser. No data leaves your machine —
+      not the TDMS file, not the fit results, not the exported CSV or PDF. There is no telemetry, no analytics,
+      no remote calls. You can open the file from your local filesystem and use it offline.
+    </p>
+
+    <footer>
+      NitaD, Univ Paris-Saclay · v1.2.x · 30 April 2026
+    </footer>
+  </article>
+</main>
+
+<script>
+  // Theme toggle (persists in localStorage so it survives reloads)
+  function toggleTheme() {
+    const isDark = document.documentElement.classList.toggle('dark');
+    document.getElementById('themeToggle').textContent = isDark ? '☀️' : '🌙';
+    try { localStorage.setItem('hplcHelpTheme', isDark ? 'dark' : 'light'); } catch(e) {}
+  }
+  // Apply persisted theme on load
+  try {
+    if (localStorage.getItem('hplcHelpTheme') === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.getElementById('themeToggle').textContent = '☀️';
+    }
+  } catch(e) {}
+
+  // Highlight active TOC entry on scroll
+  const links = document.querySelectorAll('nav.toc a');
+  const sections = [...links].map(a => document.getElementById(a.getAttribute('href').slice(1)));
+  function onScroll() {
+    let active = 0;
+    for (let i = 0; i < sections.length; i++) {
+      if (sections[i] && sections[i].getBoundingClientRect().top < 120) active = i;
+    }
+    links.forEach((a, i) => a.classList.toggle('active', i === active));
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  // Smooth scroll for anchor links
+  document.querySelectorAll('nav.toc a').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const target = document.querySelector(a.getAttribute('href'));
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+</script>
+
+</body>
+</html>

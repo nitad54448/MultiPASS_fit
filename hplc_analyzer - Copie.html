@@ -1,0 +1,3599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HPLC Analyzer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --surface2: #eef0f4;
+    --border: #d1d5dd;            /* was #dde0e8 — darker so panels separate */
+    --border2: #e2e5eb;            /* was #e8eaef */
+    --accent: #1d4ed8;             /* was #2563eb — darker for contrast on light */
+    --accent2: #0e7490;             /* was #0891b2 */
+    --accent-light: #eff6ff;
+    --accent2-light: #ecfeff;
+    --text: #0e1117;               /* was #1a1d27 — near-black for crisp body text */
+    --muted: #4b5165;              /* was #7c82a0 — now AA-compliant on white */
+    --error: #b91c1c;              /* was #dc2626 — meets AA on white */
+    --success: #047857;            /* was #059669 */
+    --num-color: #1d4ed8;
+    --str-color: #92400e;          /* was #b45309 */
+  }
+
+  html.dark {
+    --bg: #0b0c0f;
+    --surface: #15171d;            /* was #13151a — slightly lighter for separation */
+    --surface2: #1f222b;            /* was #1c1f27 */
+    --border: #353945;             /* was #2a2d38 — clearer panel edges */
+    --border2: #262a36;             /* was #1e2130 */
+    --accent: #93c5fd;             /* was #60a5fa — brighter on dark */
+    --accent2: #67e8f9;             /* was #22d3ee */
+    --accent-light: #1e3a5f30;
+    --accent2-light: #164e6330;
+    --text: #f0f2f7;               /* was #e8eaef */
+    --muted: #a8aec0;              /* was #5a5f72 — was very poor contrast */
+    --error: #fca5a5;              /* was #f87171 */
+    --success: #6ee7b7;             /* was #34d399 */
+    --num-color: #93c5fd;
+    --str-color: #fde68a;
+  }
+
+  #themeToggle {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    width: 32px;
+    height: 32px;
+    border-radius: 7px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size:16px;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  #themeToggle:hover { background: var(--surface2); color: var(--text); border-color: var(--muted); }
+  #helpBtn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    width: 32px;
+    height: 32px;
+    border-radius: 7px;
+    cursor: pointer;
+    display: none; /* shown after a file loads */
+    align-items: center;
+    justify-content: center;
+    font-size:15px;
+    font-weight: 600;
+    font-family: 'IBM Plex Mono', monospace;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  #helpBtn:hover { background: var(--surface2); color: var(--accent); border-color: var(--accent); }
+
+  body { background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans', sans-serif; font-size:16px; line-height: 1.5; min-height: 100vh; display: flex; flex-direction: column; }
+
+  header { padding: 14px 28px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 14px; background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  header .logo { font-size: 17px; font-weight: 600; letter-spacing: -0.3px; color: var(--text); font-family: 'IBM Plex Mono', monospace; }
+  header .logo span { color: var(--accent); }
+  header .badge { font-family: 'IBM Plex Mono', monospace; font-size:12px; background: var(--accent-light); border: 1px solid #bfdbfe; color: var(--accent); padding: 2px 8px; border-radius: 4px; letter-spacing: 0.5px; }
+
+  #newFileBtn { font-family: 'IBM Plex Mono', monospace; font-size:13px; background: var(--surface2); border: 1px solid var(--border); color: var(--muted); padding: 6px 14px; border-radius: 6px; cursor: pointer; display: none; transition: all 0.15s; }
+  #newFileBtn:hover { background: var(--border2); color: var(--text); border-color: #c5c9d8; }
+
+  .main { flex: 1; display: flex; flex-direction: column; padding: 24px 28px; gap: 16px; max-width: 1500px; width: 100%; margin: 0 auto; }
+
+  #dropzone { border: 2px dashed var(--border); border-radius: 12px; padding: 56px 32px; text-align: center; cursor: pointer; transition: all 0.2s ease; background: var(--surface); }
+  #dropzone:hover, #dropzone.drag-over { border-color: var(--accent); background: var(--accent-light); }
+  #dropzone .icon { font-size: 40px; margin-bottom: 14px; display: block; }
+  #dropzone h2 { font-size: 18px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
+  #dropzone p { color: var(--muted); font-size:13px; font-family: 'IBM Plex Mono', monospace; }
+  #fileInput { display: none; }
+
+  #statusBar { display: none; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; font-family: 'IBM Plex Mono', monospace; font-size:13px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+  .dot.error { background: var(--error); }
+  .dot.loading { background: var(--accent); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  #statsArea { margin-left: auto; color: var(--muted); display: flex; gap: 20px; }
+  #statsArea span { color: var(--text); font-weight: 500; }
+
+  #content { display: none; gap: 16px; flex: 1; }
+  #content.visible { display: flex; }
+
+  .panel-row { display: grid; grid-template-columns: 1fr 1.618fr; gap: 16px; flex: 1; min-height: 500px; max-height: calc(100vh - 200px); }
+
+  /* In HPLC mode the left panel is just a chromatogram picker — narrower is better. */
+  body.hplc-mode .panel-row { grid-template-columns: 280px 1fr; }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+
+  .panel-header { padding: 10px 14px; border-bottom: 1px solid var(--border2); font-size:12px; font-family: 'IBM Plex Mono', monospace; letter-spacing: 1px; color: var(--muted); text-transform: uppercase; display: flex; align-items: center; justify-content: space-between; background: var(--surface2); }
+  .panel-header .count { background: var(--surface); color: var(--accent); padding: 2px 8px; border-radius: 20px; font-size:12px; border: 1px solid var(--border); }
+  .panel-body { flex: 1; overflow-y: auto; padding: 6px; }
+  .panel-body::-webkit-scrollbar { width: 4px; }
+  .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .group-node { margin-bottom: 1px; }
+  .group-label { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size:14px; font-weight: 500; color: var(--text); transition: background 0.12s; user-select: none; }
+  .group-label:hover { background: var(--surface2); }
+  .group-label .arrow { color: var(--muted); font-size:11px; transition: transform 0.18s; flex-shrink: 0; }
+  .group-label.open .arrow { transform: rotate(90deg); }
+  .group-label .g-icon { color: var(--accent2); flex-shrink: 0; }
+  .group-label .ch-count { margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size:12px; color: var(--muted); flex-shrink: 0; }
+  .channels-list { padding-left: 14px; display: none; }
+  .channels-list.open { display: block; }
+  .channel-item { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size:13px; font-family: 'IBM Plex Mono', monospace; color: var(--muted); transition: all 0.12s; border: 1px solid transparent; margin-bottom: 1px; }
+  .channel-item:hover { background: var(--surface2); color: var(--text); }
+  .channel-item.active { background: var(--accent-light); border-color: #bfdbfe; color: var(--accent); }
+  .channel-item .c-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+  .channel-item.active .c-dot { background: var(--accent); }
+  .channel-item .dtype { margin-left: auto; font-size:11px; color: var(--muted); background: var(--surface2); padding: 1px 5px; border-radius: 3px; flex-shrink: 0; border: 1px solid var(--border2); }
+
+  .data-panel { flex: 1; display: flex; flex-direction: column; }
+  .tabs { display: flex; gap: 1px; padding: 8px 8px 0; border-bottom: 1px solid var(--border); background: var(--surface2); }
+  .tab { padding: 6px 14px; font-size:13px; font-family: 'IBM Plex Mono', monospace; color: var(--muted); cursor: pointer; border-radius: 5px 5px 0 0; border: 1px solid transparent; border-bottom: none; transition: all 0.12s; user-select: none; }
+  .tab:hover { color: var(--text); background: var(--border2); }
+  .tab.active { background: var(--surface); border-color: var(--border); color: var(--accent); font-weight: 500; }
+  .tab-content { display: none; flex: 1; overflow: auto; padding: 14px; }
+  .tab-content.active { display: block; }
+  .tab-content::-webkit-scrollbar { width: 4px; }
+  .tab-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .props-table { width: 100%; border-collapse: collapse; font-size:13px; font-family: 'IBM Plex Mono', monospace; }
+  .props-table th { text-align: left; padding: 6px 12px; color: var(--muted); font-size:12px; letter-spacing: 0.8px; text-transform: uppercase; border-bottom: 1px solid var(--border); background: var(--surface2); }
+  .props-table td { padding: 6px 12px; border-bottom: 1px solid var(--border2); vertical-align: top; }
+  .props-table tr:hover td { background: var(--surface2); }
+  .props-table .key { color: var(--accent2); }
+  .props-table .val { color: var(--text); word-break: break-all; }
+  .props-table .tcell { color: var(--muted); font-size:12px; }
+
+  .values-wrap { overflow: auto; }
+  .values-table { width: 100%; border-collapse: collapse; font-size:13px; font-family: 'IBM Plex Mono', monospace; }
+  .values-table th { position: sticky; top: 0; background: var(--surface2); padding: 6px 12px; color: var(--muted); font-size:12px; letter-spacing: 0.8px; text-transform: uppercase; border-bottom: 1px solid var(--border); z-index: 1; }
+  .values-table th:first-child { text-align: left; width: 70px; }
+  .values-table td { padding: 5px 12px; border-bottom: 1px solid var(--border2); }
+  .values-table td:first-child { color: var(--muted); }
+  .values-table tr:hover td { background: var(--surface2); }
+  .num { color: var(--num-color); }
+  .str { color: var(--str-color); }
+
+  .truncate-note { text-align: center; color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size:13px; padding: 10px; border-top: 1px solid var(--border2); margin-top: 8px; }
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 200px; color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size:14px; gap: 10px; }
+  .empty-state .big { font-size: 28px; }
+
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .stat-card .label { font-family: 'IBM Plex Mono', monospace; font-size:12px; color: var(--muted); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .stat-card .value { font-family: 'IBM Plex Mono', monospace; font-size:16px; color: var(--accent); font-weight: 600; }
+  .stat-card .value.blue { color: var(--accent2); }
+  .stat-card .value.white { color: var(--text); font-size:14px; }
+
+  footer {
+    text-align: center;
+    padding: 14px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    margin-top: auto;
+    background: var(--surface);
+  }
+
+  #channelPreview {
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+    color: var(--text);
+    z-index: 1000;
+    pointer-events: none;
+    display: none;
+  }
+  .pv-title { color: var(--accent); margin-bottom: 6px; font-weight: 600; border-bottom: 1px solid var(--border2); padding-bottom: 4px; }
+  .pv-val { color: var(--muted); }
+
+  /* ─────────────── HPLC analyzer additions ─────────────── */
+
+  #hplcBtn {
+    margin-left: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+    background: #ecfeff;
+    border: 1px solid #a5f3fc;
+    color: var(--accent2);
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: none;
+    transition: all 0.15s;
+    font-weight: 500;
+  }
+  html.dark #hplcBtn { background: #164e6325; border-color: #155e7560; }
+  #hplcBtn:hover { filter: brightness(0.96); }
+  #hplcBtn.active {
+    background: var(--accent2);
+    color: #fff;
+    border-color: var(--accent2);
+  }
+  html.dark #hplcBtn.active { color: #0b0c0f; }
+
+  /* HPLC overlay panel — replaces the right-hand data panel when active */
+  #hplcView {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  body.hplc-mode #content > .panel-row > .data-panel { display: none; }
+  body.hplc-mode #hplcView { display: flex; }
+  /* narrower left panel in HPLC mode — channel list is concise */
+  body.hplc-mode #content > .panel-row { grid-template-columns: 280px 1fr; }
+  body.hplc-mode #content > .panel-row > .panel:first-child > .panel-body { padding: 0; }
+  body.hplc-mode .hplc-sg-list { padding: 6px 8px; gap: 2px; }
+  body.hplc-mode .hplc-sg-config { margin: 4px 8px; padding: 8px 10px; }
+
+  /* mode-conditional UI bits */
+  .hplc-only { display: none; }
+  body.hplc-mode .hplc-only { display: inline; }
+  body.hplc-mode .raw-only  { display: none; }
+
+  /* Filter bar above the chromatogram list */
+  .hplc-filter-bar {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border2);
+    background: var(--surface2);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .hplc-filter-bar select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 8px;
+    border-radius: 5px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+    width: 100%;
+    cursor: pointer;
+  }
+  .hplc-filter-actions {
+    display: flex;
+    gap: 4px;
+  }
+  .hplc-filter-actions button {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.4px;
+  }
+  .hplc-filter-actions button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .hplc-filter-summary {
+    font-size:12px;
+    color: var(--muted);
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.5px;
+    padding: 0 2px;
+  }
+  .hplc-filter-summary b { color: var(--accent); font-weight: 600; }
+
+  /* HPLC tree side: extra controls for signal group detection */
+  body.hplc-mode .channel-item .c-dot { display: none; } /* less noise in HPLC mode */
+
+  .hplc-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border2);
+    background: var(--surface2);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+    color: var(--muted);
+  }
+  .hplc-toolbar .group { display: flex; align-items: center; gap: 6px; }
+  .hplc-toolbar label { font-size:12px; letter-spacing: 0.6px; text-transform: uppercase; }
+  .hplc-toolbar input[type=number],
+  .hplc-toolbar select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 6px;
+    border-radius: 5px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+    width: 64px;
+  }
+  .hplc-toolbar select { width: auto; padding-right: 18px; }
+  .hplc-toolbar input[type=checkbox] { accent-color: var(--accent); }
+  .hplc-toolbar .spacer { flex: 1; }
+  .hplc-toolbar button {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .hplc-toolbar button.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  html.dark .hplc-toolbar button.primary { color: #0b0c0f; }
+  .hplc-toolbar button:hover { filter: brightness(0.96); }
+  .hplc-toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* Active state for the "+ peak" button when add-peak mode is on. */
+  .hplc-toolbar button.adding-peak {
+    background: var(--success, #047857);
+    color: #fff;
+    border-color: var(--success, #047857);
+  }
+  html.dark .hplc-toolbar button.adding-peak { color: #0b0c0f; }
+
+  /* While add-peak mode is on, the chart cursor is a crosshair anywhere over
+     the canvas — to make the click target obvious. */
+  body.hplc-add-peak .hplc-chart-wrap canvas { cursor: crosshair !important; }
+
+  .hplc-chart-wrap {
+    flex: 1;
+    min-height: 280px;
+    position: relative;
+    background: var(--surface);
+  }
+  #hplcChart { width: 100%; height: 100%; display: block; }
+
+  .hplc-legend {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:12px;
+    max-width: 240px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .hplc-legend .row { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+  .hplc-legend .swatch { width: 14px; height: 2px; flex-shrink: 0; }
+  .hplc-legend .label { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hplc-legend .meta { color: var(--muted); }
+
+  .hplc-cursor {
+    position: absolute;
+    bottom: 8px;
+    left: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:12px;
+    color: var(--muted);
+    pointer-events: none;
+    display: none;
+  }
+
+  .hplc-zoom-controls {
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+  }
+  .hplc-zoom-controls > div {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px;
+    display: flex;
+    gap: 1px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .hplc-zoom-controls button {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    width: 26px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size:14px;
+    line-height: 1;
+    padding: 0;
+    transition: all 0.12s;
+  }
+  .hplc-zoom-controls button:hover {
+    background: var(--surface2);
+    color: var(--accent);
+  }
+  .hplc-zoom-controls .hplc-zoom-mode-btn {
+    width: 24px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .hplc-zoom-controls .hplc-zoom-mode-btn.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  html.dark .hplc-zoom-controls .hplc-zoom-mode-btn.active { color: #0b0c0f; }
+
+  .hplc-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+    gap: 10px;
+    padding: 32px;
+    text-align: center;
+  }
+  .hplc-empty .big { font-size: 32px; }
+
+  /* peak table */
+  .hplc-results {
+    border-top: 1px solid var(--border2);
+    height: 200px;
+    overflow: auto;
+    background: var(--surface);
+  }
+  .hplc-results-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border2);
+    background: var(--surface2);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    position: sticky; top: 0; z-index: 1;
+  }
+  table.hplc-peaks {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+  }
+  table.hplc-peaks th {
+    text-align: left;
+    padding: 6px 10px;
+    background: var(--surface2);
+    color: var(--muted);
+    font-size:12px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom: 1px solid var(--border);
+  }
+  table.hplc-peaks td {
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--border2);
+    color: var(--text);
+  }
+  table.hplc-peaks tr:hover td { background: var(--surface2); }
+  table.hplc-peaks .group-cell { display: inline-flex; align-items: center; gap: 6px; }
+  table.hplc-peaks .swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  table.hplc-peaks .r2-good { color: var(--success); }
+  table.hplc-peaks .r2-warn { color: var(--str-color); }
+  table.hplc-peaks .r2-bad  { color: var(--error); }
+
+  /* Per-row delete button. Quiet by default; bright on hover. */
+  table.hplc-peaks .peak-del-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--muted);
+    cursor: pointer;
+    width: 22px;
+    height: 22px;
+    line-height: 1;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size:15px;
+    padding: 0;
+    transition: all 0.12s;
+    opacity: 0.4;
+  }
+  table.hplc-peaks tr:hover .peak-del-btn { opacity: 1; }
+  table.hplc-peaks .peak-del-btn:hover {
+    background: var(--error-light, #fee2e2);
+    border-color: var(--error, #dc2626);
+    color: var(--error, #dc2626);
+  }
+  html.dark table.hplc-peaks .peak-del-btn:hover {
+    background: #7f1d1d40;
+  }
+
+  /* Hovered chart peak — slightly larger marker + delete affordance */
+  .hplc-chart-wrap canvas { cursor: grab; }
+
+  /* HPLC group selector list (replaces channel checkboxes for sg picking) */
+  .hplc-sg-list {
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .hplc-sg-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size:13px;
+    transition: all 0.12s;
+    background: var(--surface);
+  }
+  .hplc-sg-item:hover { background: var(--surface2); }
+  .hplc-sg-item.active {
+    border-color: var(--accent2);
+    background: var(--accent2-light);
+  }
+  .hplc-sg-item .swatch {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+  .hplc-sg-item .name { flex: 1; font-family: 'IBM Plex Mono', monospace; font-size:13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hplc-sg-item .meta { font-family: 'IBM Plex Mono', monospace; font-size:12px; color: var(--muted); flex-shrink: 0; }
+  .hplc-sg-item input { accent-color: var(--accent); }
+  .hplc-sg-item .cfg-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size:13px;
+    padding: 2px 4px;
+    line-height: 1;
+    opacity: 0.5;
+    transition: opacity 0.15s, color 0.15s;
+    flex-shrink: 0;
+  }
+  .hplc-sg-item:hover .cfg-btn { opacity: 1; }
+  .hplc-sg-item .cfg-btn:hover { color: var(--accent); }
+
+  /* Remove-from-list button: discreet × that pulls the chromatogram out of
+     the in-memory list (the TDMS file is never touched). */
+  .hplc-sg-item .rm-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 6px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
+    flex-shrink: 0;
+    border-radius: 4px;
+  }
+  .hplc-sg-item:hover .rm-btn { opacity: 0.6; }
+  .hplc-sg-item .rm-btn:hover {
+    opacity: 1;
+    color: var(--error);
+    background: var(--surface2);
+  }
+
+  .hplc-sg-config {
+    padding: 10px 12px;
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    margin: 8px;
+    background: var(--surface2);
+    font-size:13px;
+    color: var(--muted);
+  }
+  .hplc-sg-config .row {
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .hplc-sg-config .row:last-child { margin-bottom: 0; }
+  .hplc-sg-config select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 6px;
+    border-radius: 5px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+    width: 100%;
+  }
+  .hplc-sg-config label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:12px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+
+  /* Busy cursor while fit is in progress (covers the whole page) */
+  body.hplc-busy,
+  body.hplc-busy * {
+    cursor: progress !important;
+  }
+  body.hplc-busy #hplcView,
+  body.hplc-busy #treeContainer {
+    pointer-events: none;
+    opacity: 0.65;
+    transition: opacity 0.15s;
+  }
+
+  /* toast */
+  #hplcToast {
+    position: fixed;
+    bottom: 56px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text);
+    color: var(--bg);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:13px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    letter-spacing: 0.4px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    z-index: 2000;
+    display: none;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">HPLC<span>.</span>analyzer</div>
+   <button id="csvBtn" onclick="exportCSV()" style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:13px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:6px 10px;border-radius:6px;cursor:pointer;display:none;transition:all 0.15s;" title="Export raw TDMS channels as CSV (legacy)">↓ TDMS CSV</button>
+   <button id="hplcInspectBtn" onclick="toggleHPLCMode()" title="Switch to raw TDMS inspector view" style="margin-left:8px;font-family:'IBM Plex Mono',monospace;font-size:13px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:6px 10px;border-radius:6px;cursor:pointer;display:none;transition:all 0.15s;">⌥ Inspect raw</button>
+   <button id="hplcCsvHeaderBtn" onclick="hplcExportCSV()" title="Export selected groups + fits as CSV" style="margin-left:8px;font-family:'IBM Plex Mono',monospace;font-size:13px;background:var(--accent2-light);border:1px solid #a5f3fc;color:var(--accent2);padding:6px 14px;border-radius:6px;cursor:pointer;display:none;transition:all 0.15s;font-weight:500;" disabled>↓ CSV</button>
+   <button id="hplcPdfHeaderBtn" onclick="hplcExportPDF()" title="Export PDF report" style="margin-left:8px;font-family:'IBM Plex Mono',monospace;font-size:13px;background:var(--accent-light);border:1px solid #bfdbfe;color:var(--accent);padding:6px 14px;border-radius:6px;cursor:pointer;display:none;transition:all 0.15s;font-weight:500;" disabled>↓ PDF report</button>
+
+ <button id="newFileBtn" onclick="document.getElementById('fileInput').click()">↩ Open another file</button>
+
+  <button id="helpBtn" title="Open the documentation in a new tab" onclick="window.open('analyzer_help.html', '_blank', 'noopener')">?</button>
+  <button id="themeToggle" title="Toggle dark mode" onclick="toggleTheme()">🌙</button>
+</header>
+
+<div class="main">
+  <div id="dropzone">
+    <span class="icon">⌇</span>
+    <h2>Drop your HPLC chromatogram</h2>
+    <p>TDMS file · click or drag · everything runs locally · no upload</p>
+    <input type="file" id="fileInput" accept=".tdms">
+  </div>
+
+<div id="statusBar">
+    <div class="dot" id="statusDot"></div>
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <span id="statusText"></span>
+      <span id="statusSubText" style="font-size:12px; color: var(--muted);"></span>
+    </div>
+    <div id="statsArea"></div>
+  </div>
+
+
+  <div id="content">
+    <div class="panel-row">
+      <div class="panel">
+        <div class="panel-header">
+          <span><span class="hplc-only">Chromatograms</span><span class="raw-only">Structure</span> <span class="count" id="groupCount">—</span></span>
+          <button id="sortToggle" onclick="toggleSort()" title="Toggle sort order" class="raw-only" style="font-family:'IBM Plex Mono',monospace;font-size:12px;background:none;border:1px solid var(--border);color:var(--muted);padding:2px 8px;border-radius:4px;cursor:pointer;transition:all 0.15s;letter-spacing:0.5px;">A→Z</button>
+        </div>
+        <div class="panel-body" id="treeContainer"></div>
+      </div>
+      <div class="panel data-panel">
+        <div class="tabs">
+          <div class="tab active" data-tab="values">Values</div>
+          <div class="tab" data-tab="props">Properties</div>
+          <div class="tab" data-tab="info">Channel Info</div>
+        </div>
+        <div class="tab-content active" id="tab-values"><div class="empty-state"><span class="big">⟵</span>Select a channel</div></div>
+        <div class="tab-content" id="tab-props"><div class="empty-state"><span class="big">⟵</span>Select a channel</div></div>
+        <div class="tab-content" id="tab-info"><div class="empty-state"><span class="big">⟵</span>Select a channel</div></div>
+      </div>
+
+      <!-- HPLC analysis view (replaces data-panel when HPLC mode is on) -->
+      <div id="hplcView">
+        <div class="hplc-toolbar">
+          <div class="group">
+            <label>Smoothing</label>
+            <input type="number" id="hplcSmooth" value="5" min="1" max="51" step="2" title="Boxcar moving-average window. Must be odd (a centered average needs the same number of points each side); even values are snapped up to the next odd.">
+            <span style="font-size:11px;color:var(--muted);">pts</span>
+          </div>
+          <div class="group">
+            <label>Min height</label>
+            <input type="number" id="hplcMinH" value="2" min="0.1" max="50" step="0.1" title="Peaks below this fraction of the trace maximum are ignored">
+            <span style="font-size:11px;color:var(--muted);">%</span>
+          </div>
+          <div class="group">
+            <label>Min separation</label>
+            <input type="number" id="hplcMinD" value="2" min="0" step="0.1" title="Two peaks closer than this (in time units) are merged">
+            <span style="font-size:11px;color:var(--muted);">t</span>
+          </div>
+          <div class="group">
+            <label>Peak shape</label>
+            <select id="hplcModel" title="EMG accounts for tailing — recommended for HPLC">
+              <option value="emg" selected>EMG (tailing)</option>
+              <option value="gauss">Gaussian (symmetric)</option>
+            </select>
+          </div>
+          <div class="spacer"></div>
+          <button id="hplcAddPeakBtn" onclick="hplcToggleAddPeak()" disabled title="Click on the chart to add a peak the auto-detector missed. Click again to cancel.">+ peak</button>
+          <button id="hplcFitBtn" class="primary" onclick="hplcRunFit()" disabled title="Run peak detection + fitting (auto-runs when params change)">↻ Re-fit</button>
+        </div>
+        <div class="hplc-chart-wrap" id="hplcChartWrap">
+          <canvas id="hplcChart"></canvas>
+          <div class="hplc-zoom-controls" id="hplcZoomControls">
+            <div class="hplc-zoom-mode" title="Choose which axis the wheel and box-zoom act on">
+              <button class="hplc-zoom-mode-btn active" data-mode="xy" onclick="hplcSetZoomMode('xy')" title="Zoom both axes (default)">XY</button>
+              <button class="hplc-zoom-mode-btn"        data-mode="x"  onclick="hplcSetZoomMode('x')"  title="Zoom X-axis only (or hold Shift while wheeling)">X</button>
+              <button class="hplc-zoom-mode-btn"        data-mode="y"  onclick="hplcSetZoomMode('y')"  title="Zoom Y-axis only (or hold Ctrl/Cmd while wheeling)">Y</button>
+            </div>
+            <div class="hplc-zoom-step">
+              <button onclick="hplcZoomBy(0.7)" title="Zoom in">+</button>
+              <button onclick="hplcZoomBy(1.4)" title="Zoom out">−</button>
+              <button onclick="hplcAutoFitView(); hplcDraw();" title="Fit to data (or double-click chart)">⤢</button>
+            </div>
+          </div>
+          <div class="hplc-legend" id="hplcLegend" style="display:none;"></div>
+          <div class="hplc-cursor" id="hplcCursor"></div>
+          <div class="hplc-empty" id="hplcEmpty">
+            <span class="big">⌇</span>
+            <div>Select one or more chromatograms on the left to plot and fit</div>
+            <div style="font-size:12px;">drag to pan · wheel to zoom · shift+drag = box zoom · double-click to reset · + peak to add manually</div>
+          </div>
+        </div>
+        <div class="hplc-results">
+          <div class="hplc-results-head">
+            <span>Detected & Fitted Peaks</span>
+            <span id="hplcPeakCount">— no fit yet —</span>
+          </div>
+          <table class="hplc-peaks" id="hplcPeaksTable">
+            <thead>
+              <tr>
+                <th>#</th><th>Group</th><th>tR</th><th>Height</th><th>Area</th><th>Area %</th><th>R²</th><th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+//  TDMS Parser
+//
+//  Key structural insight (validated against real NI files):
+//  The raw data index block (rawIdx bytes) contains:
+//    dtype(4) + arrayDim(4) + numValues(8) [+ totalBytes(8) if string] + numProps(4)
+//  numProps is the LAST field INSIDE the rawIdx block — NOT a separate field after it.
+//  After reading the known fields, numProps is read directly (no skip to idx_start+rawIdx).
+// ═══════════════════════════════════════════════════════════════════════
+
+const DTYPE_INFO = {
+  1:    { name: 'i8',        size: 1  },
+  2:    { name: 'i16',       size: 2  },
+  3:    { name: 'i32',       size: 4  },
+  4:    { name: 'i64',       size: 8  },
+  5:    { name: 'u8',        size: 1  },
+  6:    { name: 'u16',       size: 2  },
+  7:    { name: 'u32',       size: 4  },
+  8:    { name: 'u64',       size: 8  },
+  9:    { name: 'float32',   size: 4  },
+  10:   { name: 'float64',   size: 8  },
+  11:   { name: 'extended',  size: 10 },
+  0x20: { name: 'string',    size: -1 },
+  0x21: { name: 'boolean',   size: 1  },
+  0x44: { name: 'timestamp', size: 16 },
+};
+
+function parseTDMS(buffer) {
+  const u8  = new Uint8Array(buffer);
+  const dv  = new DataView(buffer);
+  const dec = new TextDecoder('utf-8');
+  const objects = {}; // path → { properties, rawDataInfo, values }
+
+  // ── read helpers (little-endian, cursor-based) ──
+  let p = 0;
+  const rdU8   = ()  => u8[p++];
+  const rdU16  = ()  => { const v=dv.getUint16(p,true);  p+=2; return v; };
+  const rdI16  = ()  => { const v=dv.getInt16(p,true);   p+=2; return v; };
+  const rdU32  = ()  => { const v=dv.getUint32(p,true);  p+=4; return v; };
+  const rdI32  = ()  => { const v=dv.getInt32(p,true);   p+=4; return v; };
+  const rdF32  = ()  => { const v=dv.getFloat32(p,true); p+=4; return v; };
+  const rdF64  = ()  => { const v=dv.getFloat64(p,true); p+=8; return v; };
+  const rdU64n = ()  => { const v=Number(dv.getBigUint64(p,true)); p+=8; return v; };
+  const rdStr  = ()  => { const l=rdU32(); const s=dec.decode(u8.subarray(p,p+l)); p+=l; return s; };
+  const rdTS   = ()  => {
+    const secLo=dv.getUint32(p+8,true), secHi=dv.getInt32(p+12,true);
+    p+=16;
+    return new Date((secHi*4294967296+secLo-2082844800)*1000).toISOString();
+  };
+
+  function rdPropVal(dtype) {
+    switch(dtype) {
+      case 1:    return rdU8() << 0 | 0;  // sign-extend
+      case 2:    return rdI16();
+      case 3:    return rdI32();
+      case 4:    return rdU64n();
+      case 5:    return rdU8();
+      case 6:    return rdU16();
+      case 7:    return rdU32();
+      case 8:    return rdU64n();
+      case 9:    return rdF32();
+      case 10:   return rdF64();
+      case 0x20: return rdStr();
+      case 0x21: return rdU8() !== 0;
+      case 0x44: return rdTS();
+      default:   return `[0x${dtype.toString(16)}]`;
+    }
+  }
+
+  function rdRawVal(dtype, dpos, le) {
+    switch(dtype) {
+      case 1:    return dv.getInt8(dpos);
+      case 2:    return dv.getInt16(dpos,le);
+      case 3:    return dv.getInt32(dpos,le);
+      case 4:    { const lo=dv.getUint32(dpos,le),hi=dv.getInt32(dpos+4,le); return hi*4294967296+lo; }
+      case 5:    return dv.getUint8(dpos);
+      case 6:    return dv.getUint16(dpos,le);
+      case 7:    return dv.getUint32(dpos,le);
+      case 8:    { const lo=dv.getUint32(dpos,le),hi=dv.getUint32(dpos+4,le); return hi*4294967296+lo; }
+      case 9:    return dv.getFloat32(dpos,le);
+      case 10:   return dv.getFloat64(dpos,le);
+      case 0x21: return dv.getUint8(dpos) !== 0;
+      case 0x44: {
+        const secLo=dv.getUint32(dpos+8,le), secHi=dv.getInt32(dpos+12,le);
+        return new Date((secHi*4294967296+secLo-2082844800)*1000).toISOString();
+      }
+      default: return null;
+    }
+  }
+
+  // ── Segment loop ──
+  let segStart = 0;
+  while (segStart + 28 <= buffer.byteLength) {
+    // Check for 'TDSm' or 'TDSh' (index file) tag
+    const tag0=u8[segStart],tag1=u8[segStart+1],tag2=u8[segStart+2],tag3=u8[segStart+3];
+    const isTDSm = tag0===0x54&&tag1===0x44&&tag2===0x53&&tag3===0x6D;
+    const isTDSh = tag0===0x54&&tag1===0x44&&tag2===0x53&&tag3===0x68;
+    if (!isTDSm && !isTDSh) break;
+
+    const toc        = dv.getUint32(segStart+4, true);
+    const nextSegOff = Number(dv.getBigUint64(segStart+12, true));
+    const rawDataOff = Number(dv.getBigUint64(segStart+20, true));
+
+    const leadInEnd  = segStart + 28;
+    const dataStart  = leadInEnd + rawDataOff;
+    const nextSegPos = nextSegOff === 0xFFFFFFFFFFFFFFFF ? buffer.byteLength : leadInEnd + nextSegOff;
+    const dataEnd    = Math.min(nextSegPos, buffer.byteLength);
+
+    const hasMeta        = (toc & 0x02) !== 0;
+    const hasRaw         = (toc & 0x08) !== 0;
+    const isInterleaved  = (toc & 0x20) !== 0;
+    const isBigEndian    = (toc & 0x40) !== 0;
+    const le             = !isBigEndian;
+
+    const segActiveObjs = []; // ordered list of objects with raw data this segment
+
+    // ── Parse metadata ──
+    if (hasMeta) {
+      p = leadInEnd;
+      const numObjects = rdU32();
+
+      for (let oi = 0; oi < numObjects; oi++) {
+        const path   = rdStr();
+        const rawIdx = rdU32(); // byte length of raw data index block that follows
+
+        if (!objects[path]) objects[path] = { properties:{}, rawDataInfo:null, values:[] };
+
+        let ri = objects[path].rawDataInfo; // carry forward by default
+
+        if (rawIdx === 0xFFFFFFFF) {
+          // No raw data for this object in this segment
+          ri = null;
+          // Still need to read numProps (it comes right after rawIdx when no index block)
+          const numProps = rdU32();
+          for (let pi=0; pi<numProps; pi++) {
+            const pname = rdStr();
+            const ptype = rdU32();
+            const pval  = rdPropVal(ptype);
+            objects[path].properties[pname] = { value: pval, type: DTYPE_INFO[ptype]?.name || `0x${ptype.toString(16)}` };
+          }
+          objects[path].rawDataInfo = null;
+          continue; // don't add to segActiveObjs
+        }
+
+        if (rawIdx === 0x00000000) {
+          // Same raw data layout as previous segment — ri unchanged, no index to read
+          // numProps follows immediately
+          const numProps = rdU32();
+          for (let pi=0; pi<numProps; pi++) {
+            const pname = rdStr();
+            const ptype = rdU32();
+            const pval  = rdPropVal(ptype);
+            objects[path].properties[pname] = { value: pval, type: DTYPE_INFO[ptype]?.name || `0x${ptype.toString(16)}` };
+          }
+          if (ri) segActiveObjs.push({ path, ri });
+          continue;
+        }
+
+        // New raw data index: read fields directly (numProps is the LAST field inside rawIdx)
+        const dtype = rdU32();
+        const dim   = rdU32(); // always 1
+        const nvals = rdU64n();
+        let totalBytes = 0;
+        if (dtype === 0x20) totalBytes = rdU64n(); // string type: total byte count
+
+        // numProps is the last u32 inside the rawIdx block
+        const numProps = rdU32();
+
+        ri = { dtype, nvals, totalBytes };
+        objects[path].rawDataInfo = ri;
+        segActiveObjs.push({ path, ri });
+
+        // Properties follow immediately after rawIdx block
+        for (let pi=0; pi<numProps; pi++) {
+          const pname = rdStr();
+          const ptype = rdU32();
+          const pval  = rdPropVal(ptype);
+          objects[path].properties[pname] = { value: pval, type: DTYPE_INFO[ptype]?.name || `0x${ptype.toString(16)}` };
+        }
+      }
+    }
+
+    // ── Parse raw data ──
+    if (hasRaw && segActiveObjs.length > 0) {
+      if (!isInterleaved) {
+        // Contiguous layout: all values of obj0, then obj1, …
+        let dpos = dataStart;
+        for (const { path, ri } of segActiveObjs) {
+          const { dtype, nvals, totalBytes } = ri;
+
+          if (dtype === 0x20) {
+            // String: [nvals × u32 end-offsets] then [raw string bytes]
+            const strDataStart = dpos + nvals * 4;
+            let prev = 0;
+            for (let i=0; i<nvals; i++) {
+              const endOff = dv.getUint32(dpos + i*4, true);
+              objects[path].values.push(dec.decode(u8.subarray(strDataStart+prev, strDataStart+endOff)));
+              prev = endOff;
+            }
+            dpos += totalBytes;
+          } else {
+            const sz = DTYPE_INFO[dtype]?.size;
+            if (!sz || sz <= 0) continue;
+            for (let i=0; i<nvals; i++) {
+              if (dpos + sz > dataEnd) break;
+              const v = rdRawVal(dtype, dpos, le);
+              if (v !== null) objects[path].values.push(v);
+              dpos += sz;
+            }
+          }
+        }
+      } else {
+        // Interleaved: one sample of each object per cycle
+        const cycleSize = segActiveObjs.reduce((acc, {ri}) => {
+          const sz = DTYPE_INFO[ri.dtype]?.size || 0;
+          return acc + Math.max(sz, 0);
+        }, 0);
+        if (cycleSize > 0) {
+          let dpos = dataStart;
+          while (dpos + cycleSize <= dataEnd) {
+            for (const { path, ri } of segActiveObjs) {
+              const sz = DTYPE_INFO[ri.dtype]?.size;
+              if (!sz || sz <= 0) continue;
+              const v = rdRawVal(ri.dtype, dpos, le);
+              if (v !== null) objects[path].values.push(v);
+              dpos += sz;
+            }
+          }
+        }
+      }
+    }
+
+    segStart = nextSegPos;
+    if (segStart >= buffer.byteLength) break;
+  }
+
+  return objects;
+}
+
+// ── Group/channel structure ──
+// TDMS paths look like: /  /'groupName'  /'groupName'/'channelName'
+function parsePaths(objects) {
+  const groups = {};
+  groupCreationOrder = [];
+  for (const [path, obj] of Object.entries(objects)) {
+    const m = path.match(/^\/'([^']+)'(?:\/'([^']+)')?$|^\/$/);
+    if (!m) continue;
+    const gName = m[1] || '(root)', cName = m[2] || null;
+    if (!groups[gName]) { groups[gName] = { groupObj:null, channels:{} }; groupCreationOrder.push(gName); }
+    if (cName) groups[gName].channels[cName] = { path, obj };
+    else groups[gName].groupObj = obj;
+  }
+  return groups;
+}
+
+
+//  UI
+let parsedGroups = {};
+let groupCreationOrder = []; // insertion order from the file
+let currentSort = 'name'; // 'name' | 'creation'
+
+function toggleSort() {
+  currentSort = currentSort === 'name' ? 'creation' : 'name';
+  document.getElementById('sortToggle').textContent = currentSort === 'name' ? 'A→Z' : '#';
+  document.getElementById('sortToggle').title = currentSort === 'name' ? 'Sort: alphabetical' : 'Sort: creation order';
+  buildTree(parsedGroups);
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+
+function showStatus(msg, subMsg='', state='ok', stats=null) {
+  document.getElementById('statusBar').style.display = 'flex';
+  document.getElementById('statusDot').className = 'dot '+state;
+  document.getElementById('statusText').textContent = msg;
+  document.getElementById('statusSubText').textContent = subMsg;
+  const sa = document.getElementById('statsArea');
+  sa.innerHTML = stats ? stats.map(s=>`<span style="color:var(--muted)">${s.label}:&nbsp;</span><span>${s.val}</span>`).join('') : '';
+}
+
+function buildTree(groups) {
+  const container = document.getElementById('treeContainer');
+  container.innerHTML = '';
+  
+  let gNames;
+  if (currentSort === 'name') {
+    gNames = Object.keys(groups).sort((a, b) => {
+      if (a === '(root)') return -1;
+      if (b === '(root)') return 1;
+      return a.localeCompare(b);
+    });
+  } else {
+    // creation order: use groupCreationOrder, filter to only existing keys
+    gNames = groupCreationOrder.filter(n => n in groups);
+    // put (root) first if present
+    if (gNames.includes('(root)')) {
+      gNames = ['(root)', ...gNames.filter(n => n !== '(root)')];
+    }
+  }
+
+  document.getElementById('groupCount').textContent = gNames.length+' group'+(gNames.length!==1?'s':'');
+
+  for (const gName of gNames) {
+    const g = groups[gName];
+    const cNames = Object.keys(g.channels);
+    const node  = document.createElement('div'); node.className='group-node';
+    const label = document.createElement('div'); label.className='group-label';
+
+
+label.innerHTML = `<span class="arrow">▶</span><input type="checkbox" class="group-export-cb" value="${esc(gName)}" onclick="event.stopPropagation()" style="margin-right: 6px; cursor: pointer;"><span class="g-icon">▤</span>${esc(gName)}<span class="ch-count">${cNames.length} ch</span>`;
+    
+    const chList = document.createElement('div'); chList.className='channels-list';
+  
+label.addEventListener('click', (e)=>{ 
+      // Do nothing if clicking the export checkbox
+      if (e.target.type === 'checkbox') return; 
+
+      label.classList.toggle('open'); 
+      chList.classList.toggle('open'); 
+      
+      // Push the group object to the property viewer
+      const gObj = g.groupObj || { properties: {}, values: [] };
+      selectChannel(`/'${gName}'`, gName, '— (Group Properties) —', gObj);
+    });
+
+
+    for (const cName of cNames) {
+      const ch  = g.channels[cName];
+      const dt  = DTYPE_INFO[ch.obj.rawDataInfo?.dtype]?.name||'—';
+      const item = document.createElement('div');
+      item.className='channel-item'; item.dataset.path=ch.path;
+      item.innerHTML=`<span class="c-dot"></span>${esc(cName)}<span class="dtype">${dt}</span>`;
+      item.addEventListener('click', ()=>selectChannel(ch.path, gName, cName, ch.obj));
+
+item.addEventListener('mouseenter', (e) => {
+//rajout des variable de nr de points, Xpixels, Ypixels
+  const POINTS = 800;
+  const PIXELS_X = 260;
+  const PIXELS_Y = 120;
+  // 
+
+  const pv = document.getElementById('channelPreview');
+  //pv.style.maxWidth = 'none';
+  //annule la taille, si définie dans le CSS... 
+  const numVals = (ch.obj.values || []).filter(v => typeof v === 'number');
+
+  if (numVals.length === 0) {
+    pv.innerHTML = `<div class="pv-title">${esc(cName)}</div><div class="pv-val">No numeric data</div>`;
+  } else {
+    pv.innerHTML = `<div class="pv-title">${esc(cName)}</div><canvas id="pvCanvas" width="${PIXELS_X}" height="${PIXELS_Y}" style="margin-top:4px;"></canvas>`;
+    const ctx = document.getElementById('pvCanvas').getContext('2d');
+    
+    // Decimate 
+    const step = Math.max(1, Math.floor(numVals.length / POINTS));
+    const plotData = numVals.filter((_, i) => i % step === 0);
+    
+    const min = Math.min(...plotData);
+    const max = Math.max(...plotData);
+    const range = (max - min) || 1;
+    
+    // 2px padding 
+    const padding = 2;
+    const plotHeight = PIXELS_Y - (padding * 2);
+
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    plotData.forEach((val, i) => {
+      const x = (i / (plotData.length - 1 || 1)) * PIXELS_X;
+      const y = PIXELS_Y - ((val - min) / range) * plotHeight - padding; 
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+  
+  pv.style.display = 'block';
+  pv.style.left = (e.clientX + 15) + 'px';
+  pv.style.top = (e.clientY + 15) + 'px';
+});
+
+item.addEventListener('mousemove', (e) => {
+  const pv = document.getElementById('channelPreview');
+  pv.style.left = (e.clientX + 15) + 'px';
+  pv.style.top = (e.clientY + 15) + 'px';
+});
+item.addEventListener('mouseleave', () => {
+  document.getElementById('channelPreview').style.display = 'none';
+});
+
+
+      chList.appendChild(item);
+    }
+    node.appendChild(label); node.appendChild(chList); container.appendChild(node);
+  }
+
+  // Auto-open first group, select first channel
+  const firstG = gNames[0];
+  if (firstG) {
+    container.querySelector('.group-label')?.classList.add('open');
+    container.querySelector('.channels-list')?.classList.add('open');
+    const firstCh = Object.entries(groups[firstG].channels)[0];
+    if (firstCh) selectChannel(firstCh[1].path, firstG, firstCh[0], firstCh[1].obj);
+  }
+}
+
+function selectChannel(path, gName, cName, obj) {
+  document.querySelectorAll('.channel-item').forEach(el=>el.classList.remove('active'));
+  document.querySelector(`.channel-item[data-path="${CSS.escape(path)}"]`)?.classList.add('active');
+
+  const values = obj.values||[];
+  const props  = obj.properties||{};
+  const ri     = obj.rawDataInfo;
+  const dtype  = DTYPE_INFO[ri?.dtype]?.name||'—';
+  const MAX    = 10000;
+
+  // Values tab
+  const valTab = document.getElementById('tab-values');
+  if (values.length===0) {
+    valTab.innerHTML='<div class="empty-state"><span class="big">∅</span>No raw data in this channel</div>';
+  } else {
+    const shown = values.slice(0,MAX);
+    let html='<div class="values-wrap"><table class="values-table"><thead><tr><th>#</th><th>Value</th></tr></thead><tbody>';
+    for (let i=0;i<shown.length;i++) {
+      const v=shown[i];
+      const cls=typeof v==='number'?'num':'str';
+      const d=typeof v==='number'?(Number.isInteger(v)?v:+v.toPrecision(10)):v;
+      html+=`<tr><td>${i}</td><td class="${cls}">${esc(String(d))}</td></tr>`;
+    }
+    html+='</tbody></table></div>';
+    if (values.length>MAX) html+=`<div class="truncate-note">Showing ${MAX.toLocaleString()} of ${values.length.toLocaleString()} values</div>`;
+    valTab.innerHTML=html;
+  }
+
+  // Props tab
+  const propsTab = document.getElementById('tab-props');
+  const pKeys = Object.keys(props);
+  if (pKeys.length===0) {
+    propsTab.innerHTML='<div class="empty-state"><span class="big">∅</span>No properties</div>';
+  } else {
+    let html='<table class="props-table"><thead><tr><th>Property</th><th>Value</th><th>Type</th></tr></thead><tbody>';
+    for (const k of pKeys)
+      html+=`<tr><td class="key">${esc(k)}</td><td class="val">${esc(String(props[k].value))}</td><td class="tcell">${esc(props[k].type)}</td></tr>`;
+    propsTab.innerHTML=html+'</tbody></table>';
+  }
+
+  // Info tab
+  const infoTab = document.getElementById('tab-info');
+  const numVals = values.filter(v=>typeof v==='number');
+  const hasStats= numVals.length>0;
+  const minV    = hasStats?Math.min(...numVals):null;
+  const maxV    = hasStats?Math.max(...numVals):null;
+  const meanV   = hasStats?numVals.reduce((a,b)=>a+b,0)/numVals.length:null;
+  const stdV    = hasStats?Math.sqrt(numVals.reduce((a,b)=>a+(b-meanV)**2,0)/numVals.length):null;
+
+  infoTab.innerHTML=`
+    <div class="stats-grid">
+      <div class="stat-card"><div class="label">Samples</div><div class="value">${values.length.toLocaleString()}</div></div>
+      <div class="stat-card"><div class="label">Data Type</div><div class="value blue">${dtype}</div></div>
+      <div class="stat-card"><div class="label">Group</div><div class="value white">${esc(gName)}</div></div>
+      <div class="stat-card"><div class="label">Properties</div><div class="value">${pKeys.length}</div></div>
+      ${hasStats?`
+      <div class="stat-card"><div class="label">Min</div><div class="value blue">${minV.toPrecision(7)}</div></div>
+      <div class="stat-card"><div class="label">Max</div><div class="value blue">${maxV.toPrecision(7)}</div></div>
+      <div class="stat-card"><div class="label">Mean</div><div class="value">${meanV.toPrecision(8)}</div></div>
+      <div class="stat-card"><div class="label">Std Dev</div><div class="value">${stdV.toPrecision(6)}</div></div>`:''}
+    </div>
+    <table class="props-table"><thead><tr><th>Field</th><th>Detail</th></tr></thead><tbody>
+      <tr><td class="key">path</td><td class="val">${esc(path)}</td></tr>
+      <tr><td class="key">channel</td><td class="val">${esc(cName)}</td></tr>
+      <tr><td class="key">group</td><td class="val">${esc(gName)}</td></tr>
+    </tbody></table>`;
+}
+
+//séparateur ; ou , suivant le système 
+async function exportCSV() {
+  const columns = [];
+  const checkedBoxes = Array.from(document.querySelectorAll('.group-export-cb:checked')).map(cb => cb.value);
+  const exportAll = checkedBoxes.length === 0;
+
+  for (const [gName, g] of Object.entries(parsedGroups)) {
+    if (!exportAll && !checkedBoxes.includes(gName)) continue; 
+    
+    for (const [cName, ch] of Object.entries(g.channels)) {
+      if (ch.obj.values.length > 0) {
+        columns.push({ header: `${gName}/${cName}`, values: ch.obj.values });
+      }
+    }
+  }
+  if (columns.length === 0) { alert('No channel data to export.'); return; }
+
+  // Auto-detect the best separator based on the OS, direct read in Excel... (well, there is a TDMS plugin for reading in Excel, so not really needed) 
+  const useSemicolon = (1.1).toLocaleString().includes(',');
+  const SEP = useSemicolon ? ';' : ',';
+
+  const numRows = Math.max(...columns.map(c => c.values.length));
+  const defaultName = (document.getElementById('statusText').textContent || 'export').replace(/\.tdms$/i,'') + '.csv';
+
+  let writable = null;
+  const blobParts = []; 
+
+  try {
+    if (window.showSaveFilePicker) {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: defaultName,
+        types: [{ description: 'CSV file', accept: { 'text/csv': ['.csv'] } }],
+      });
+      writable = await handle.createWritable();
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') return; 
+  }
+
+  const writeData = async (data) => {
+    if (writable) await writable.write(data);
+    else blobParts.push(data);
+  };
+
+  // Write header 
+  await writeData(columns.map(c => csvCell(c.header, SEP)).join(SEP) + '\r\n');
+
+  const CHUNK_SIZE = 10000;
+  for (let i = 0; i < numRows; i += CHUNK_SIZE) {
+    const chunk = [];
+    const end = Math.min(i + CHUNK_SIZE, numRows);
+    
+    for (let j = i; j < end; j++) {
+      // Write rows using dynamic separator
+      chunk.push(columns.map(c => j < c.values.length ? csvCell(c.values[j], SEP) : '').join(SEP));
+    }
+    
+    await writeData(chunk.join('\r\n') + '\r\n');
+  }
+
+  if (writable) {
+    await writable.close();
+  } else {
+    const blob = new Blob(blobParts, { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = defaultName; a.click();
+    URL.revokeObjectURL(url);
+  }
+}
+
+function csvCell(v, sep) {
+  if (v == null) return ''; 
+  const s = String(v);
+  // Look for the dynamic separator to wrap in quotes if needed
+  if (s.includes(sep) || s.includes('"') || s.includes('\n')) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+
+function resetUI() {
+  document.getElementById('dropzone').style.display='';
+  document.getElementById('content').style.display='none';
+  document.getElementById('statusBar').style.display='none';
+  document.getElementById('newFileBtn').style.display='none';
+  document.getElementById('csvBtn').style.display='none';
+  document.getElementById('hplcInspectBtn').style.display='none';
+  document.getElementById('hplcInspectBtn').classList.remove('active');
+  document.getElementById('hplcCsvHeaderBtn').style.display='none';
+  document.getElementById('hplcPdfHeaderBtn').style.display='none';
+  document.getElementById('helpBtn').style.display='none';
+  document.body.classList.remove('hplc-mode');
+  document.getElementById('treeContainer').innerHTML='';
+  document.getElementById('fileInput').value='';
+}
+
+
+function handleFile(file) {
+  if (!file) return;
+  showStatus(`Reading ${file.name}…`, '', 'loading');
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const objects = parseTDMS(e.target.result);
+
+      parsedGroups = parsePaths(objects);
+      const gCount = Object.keys(parsedGroups).length;
+      const cCount = Object.values(parsedGroups).reduce((s,g)=>s+Object.keys(g.channels).length,0);
+      const samples= Object.values(objects).reduce((s,o)=>s+(o.values?.length||0),0);
+
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      const fileDate = new Date(file.lastModified).toLocaleString();
+
+      showStatus(file.name, `${sizeMB} MB · ${fileDate}`, 'ok', [
+        {label:'Groups',   val:gCount},
+        {label:'Channels', val:cCount},
+        {label:'Samples',  val:samples.toLocaleString()}
+      ]);
+
+      buildTree(parsedGroups);
+      document.getElementById('dropzone').style.display='none';
+      document.getElementById('content').style.display='flex';
+      document.getElementById('newFileBtn').style.display='block';
+      document.getElementById('csvBtn').style.display='block';
+      document.getElementById('hplcInspectBtn').style.display='block';
+      document.getElementById('hplcCsvHeaderBtn').style.display='block';
+      document.getElementById('hplcPdfHeaderBtn').style.display='block';
+      document.getElementById('helpBtn').style.display='flex';
+
+      // initialize HPLC layer (detect signal groups, build state)
+      hplcResetForNewFile();
+
+      // ENTER HPLC MODE by default — this app is for HPLC analysis
+      if (HPLC.state.sigGroups.length > 0) {
+        document.body.classList.add('hplc-mode');
+        document.getElementById('hplcInspectBtn').classList.remove('active');
+        hplcRenderTree();
+        hplcAutoFitView();
+        // run an initial fit automatically — the user lands on a finished plot
+        requestAnimationFrame(() => {
+          hplcResizeCanvas();
+          hplcDraw();
+          hplcUpdateButtons();
+          // auto-fit if there's at least one selected group
+          if (HPLC.state.selected.size > 0) hplcRunFit();
+        });
+      }
+
+    } catch(err) {
+      showStatus('Parse error: '+err.message, '', 'error');
+      console.error(err);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+
+const dz = document.getElementById('dropzone');
+dz.addEventListener('click',  ()=>document.getElementById('fileInput').click());
+dz.addEventListener('dragover', e=>{e.preventDefault();dz.classList.add('drag-over');});
+dz.addEventListener('dragleave', ()=>dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e=>{e.preventDefault();dz.classList.remove('drag-over');handleFile(e.dataTransfer.files[0]);});
+document.getElementById('fileInput').addEventListener('change', e=>handleFile(e.target.files[0]));
+
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-'+tab.dataset.tab).classList.add('active');
+  });
+});
+
+// version 1.0.2 : rajout d'un petit graphe preview
+//1.0.4 : les propriétés des groupes sont indiquées
+//1.2.0 : intégration analyse HPLC (détection pics, fit EMG/Gaussien, export PDF + CSV des fits)
+
+function toggleTheme() {
+  const isDark = document.documentElement.classList.toggle('dark');
+  document.getElementById('themeToggle').textContent = isDark ? '☀️' : '🌙';
+  // redraw chart on theme change
+  if (document.body.classList.contains('hplc-mode')) hplcDraw();
+}
+</script>
+
+<footer>
+  NitaD, Univ Paris-Saclay &middot; Version 1.2.0 — TDMS reader + HPLC analyzer &middot; 28 April 2026
+</footer>
+
+<div id="channelPreview"></div>
+<div id="hplcToast"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   HPLC ANALYSIS LAYER
+   Built on top of NitaD's TDMS reader. Reuses parsedGroups + groupCreationOrder.
+   - Detects which TDMS groups are HPLC chromatograms (time + UV-like channel)
+   - Lets the user pick which to analyze and override channel mapping
+   - Baseline correction (asymmetric weighted smoothing, ALS-style)
+   - Boxcar smoothing
+   - Local-maximum peak detection with min height / distance rules
+   - Per-peak fit: EMG (recommended for HPLC tailing) or Gaussian
+   - Levenberg-Marquardt with box constraints (τ ≥ 0, σ > 0, μ inside window)
+   - Spurious-peak rejection (R² < 0.5 or σ < 1.2·dt)
+   - Live chart with raw + baseline + fits, panning, zooming, crosshair
+   - Two exports: CSV (per-group raw + fit + baseline columns + peak summary)
+                  PDF (cover, per-group page with chart + table, method page)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const HPLC = {
+  COLORS: ['#2563eb','#0891b2','#dc2626','#059669','#b45309','#7c3aed','#db2777','#0d9488'],
+  state: {
+    sigGroups: [],         // [{ name, color, timeChannel, signalChannel, time:[], signal:[], channelOptions:[], category }]
+    selected: new Set(),   // set of group names
+    results: new Map(),    // groupName -> { baseline, smoothed, peaks, fitGlobal }
+    view: { xMin:0, xMax:1, yMin:0, yMax:1 },
+    auto: true,            // auto-detect signal groups on load
+    filter: 'signal',      // 'signal' | 'pressure' | 'stabilization' | 'all'
+    fitting: false,        // true while a fit is running (used for busy cursor)
+    // Zoom mode for wheel & box-zoom: 'xy' (both axes), 'x' (X only), 'y' (Y only)
+    zoomMode: 'xy',
+    // While true, the next click on the chart adds a peak at the click's t
+    // instead of panning. Toggled by the "+ peak" toolbar button.
+    addingPeak: false,
+  },
+};
+
+/* ───────────── Auto-detection ─────────────
+   A "signal group" is any group whose channels include something time-like
+   AND something signal-like. We rank channels by name keywords and let the
+   user override per-group via dropdowns. */
+const TIME_RX   = /^(time|t|temps|seconds?|sec|s|min|minutes?)$/i;
+const SIGNAL_RX = /^(dc|signal|uv|au|m?au|absorb|absorbance|response|intensity|y)$/i;
+
+function hplcDetectSignalGroups() {
+  const sgs = [];
+  let ci = 0;
+  // walk in file/creation order so user sees them in natural order
+  const order = (typeof groupCreationOrder !== 'undefined' && groupCreationOrder.length)
+    ? groupCreationOrder.filter(n => n in parsedGroups)
+    : Object.keys(parsedGroups);
+
+  for (const gName of order) {
+    if (gName === '(root)') continue;
+    const g = parsedGroups[gName];
+    const chNames = Object.keys(g.channels);
+    if (chNames.length < 2) continue;
+
+    // pick best time + signal candidates
+    const numericChannels = chNames.filter(cn => {
+      const vals = g.channels[cn].obj.values || [];
+      return vals.length > 5 && typeof vals[0] === 'number';
+    });
+    if (numericChannels.length < 2) continue;
+
+    let timeCh = numericChannels.find(cn => TIME_RX.test(cn));
+    let sigCh  = numericChannels.find(cn => SIGNAL_RX.test(cn) && cn !== timeCh);
+
+    // fallback: if no name match, use channel with monotonically increasing values as time,
+    // and any other numeric channel as signal
+    if (!timeCh) {
+      for (const cn of numericChannels) {
+        const v = g.channels[cn].obj.values;
+        if (v.length > 3 && v[1] > v[0] && v[v.length-1] > v[Math.floor(v.length/2)]) {
+          timeCh = cn; break;
+        }
+      }
+    }
+    if (!sigCh) sigCh = numericChannels.find(cn => cn !== timeCh);
+    if (!timeCh || !sigCh) continue;
+
+    // Classify the group:
+    //   signal        — actual chromatograms (Signal X, etc.)
+    //   pressure      — pump pressure traces (Pressure X, P_*)
+    //   stabilization — stabilization/baseline runs (*stabilization* in name)
+    //   other         — anything else with time + numeric signal
+    const isStabilization = /stabili[sz]ation/i.test(gName);
+    const isPressure = /pressure|pression|^p_|^p[\s\-]/i.test(gName) ||
+                       /bar|psi|pa|kpa|mpa/i.test(sigCh);
+    const isSignal = /^signal[\s_]|^chrom|^uv\b/i.test(gName);
+    let category;
+    if (isStabilization) category = 'stabilization';
+    else if (isPressure) category = 'pressure';
+    else if (isSignal) category = 'signal';
+    else category = 'other';
+
+    sgs.push({
+      name: gName,
+      color: HPLC.COLORS[ci++ % HPLC.COLORS.length],
+      timeChannel: timeCh,
+      signalChannel: sigCh,
+      channelOptions: numericChannels,
+      isPressureLike: isPressure || isStabilization,
+      category,
+    });
+  }
+  return sgs;
+}
+
+function hplcRefreshGroupData(sg) {
+  const g = parsedGroups[sg.name];
+  const t = g.channels[sg.timeChannel]?.obj.values || [];
+  const s = g.channels[sg.signalChannel]?.obj.values || [];
+  const n = Math.min(t.length, s.length);
+  sg.time   = t.slice(0, n);
+  sg.signal = s.slice(0, n);
+}
+
+function hplcResetForNewFile() {
+  HPLC.state.sigGroups = hplcDetectSignalGroups();
+  HPLC.state.sigGroups.forEach(hplcRefreshGroupData);
+
+  // pre-select only true signal chromatograms by default; user can change filter
+  // to include pressure / stabilization if needed
+  const trueSignals = HPLC.state.sigGroups.filter(g => g.category === 'signal');
+  const fallback = HPLC.state.sigGroups.filter(g => g.category !== 'pressure' && g.category !== 'stabilization');
+  const initialSelection = trueSignals.length ? trueSignals : (fallback.length ? fallback : HPLC.state.sigGroups);
+  HPLC.state.selected = new Set(initialSelection.map(g => g.name));
+  HPLC.state.filter = trueSignals.length ? 'signal' : 'all';
+  HPLC.state.results.clear();
+
+  // exit HPLC mode if active so when re-entered it reflects the new file
+  if (document.body.classList.contains('hplc-mode')) {
+    // re-render in place
+    hplcRenderTree();
+    hplcAutoFitView();
+    hplcDraw();
+    hplcUpdateButtons();
+  }
+}
+
+/* ───────────── Mode toggle (HPLC ⇄ raw TDMS inspector) ─────────────
+   Default mode is HPLC. The "Inspect raw" button switches to your original
+   TDMS tree+tabs viewer for power users who want to see properties, etc. */
+function toggleHPLCMode() {
+  const wasInHPLC = document.body.classList.contains('hplc-mode');
+  // toggle to opposite
+  const goingToRaw = wasInHPLC;
+  document.body.classList.toggle('hplc-mode', !goingToRaw);
+
+  const btn = document.getElementById('hplcInspectBtn');
+  if (goingToRaw) {
+    // switching to raw inspector
+    btn.classList.add('active');
+    btn.textContent = '⌇ HPLC view';
+    btn.title = 'Back to HPLC analyzer';
+    buildTree(parsedGroups); // restore your original tree
+  } else {
+    // back to HPLC
+    btn.classList.remove('active');
+    btn.textContent = '⌥ Inspect raw';
+    btn.title = 'Switch to raw TDMS inspector view';
+    if (HPLC.state.sigGroups.length === 0) hplcResetForNewFile();
+    hplcRenderTree();
+    requestAnimationFrame(() => { hplcResizeCanvas(); hplcDraw(); hplcUpdateButtons(); });
+  }
+}
+
+/* ───────────── Tree (HPLC mode)
+   In HPLC mode the left panel shows:
+     1. A filter dropdown (Signals only / Pressure / Stabilization / All)
+     2. Select all / None / Invert buttons that act on the VISIBLE list
+     3. A list of cards — one per group, with a checkbox + color swatch + name
+     4. Optional "⚙" toggle on each card to override the auto-detected
+        time/signal channel mapping (hidden by default to keep the UI clean) */
+function hplcGroupVisible(sg) {
+  const f = HPLC.state.filter || 'all';
+  if (f === 'all') return true;
+  return sg.category === f;
+}
+
+function hplcVisibleGroups() {
+  return HPLC.state.sigGroups.filter(hplcGroupVisible);
+}
+
+function hplcRenderTree() {
+  const container = document.getElementById('treeContainer');
+  container.innerHTML = '';
+
+  if (HPLC.state.sigGroups.length === 0) {
+    container.innerHTML = '<div class="empty-state" style="height:auto;padding:24px;font-size:13px;">No groups with numeric channels detected</div>';
+    document.getElementById('groupCount').textContent = '0 groups';
+    return;
+  }
+
+  // category counts (for the dropdown labels)
+  const counts = { signal:0, pressure:0, stabilization:0, other:0, all: HPLC.state.sigGroups.length };
+  HPLC.state.sigGroups.forEach(sg => { counts[sg.category] = (counts[sg.category]||0) + 1; });
+
+  // ── Filter bar: dropdown + select buttons + summary ──
+  const bar = document.createElement('div');
+  bar.className = 'hplc-filter-bar';
+  bar.innerHTML = `
+    <select id="hplcFilterSel" title="Show only groups in this category">
+      <option value="signal" ${HPLC.state.filter==='signal'?'selected':''}>Signals only (${counts.signal})</option>
+      <option value="pressure" ${HPLC.state.filter==='pressure'?'selected':''}>Pressure (${counts.pressure})</option>
+      <option value="stabilization" ${HPLC.state.filter==='stabilization'?'selected':''}>Stabilization (${counts.stabilization})</option>
+      ${counts.other ? `<option value="other" ${HPLC.state.filter==='other'?'selected':''}>Other (${counts.other})</option>` : ''}
+      <option value="all" ${HPLC.state.filter==='all'?'selected':''}>All (${counts.all})</option>
+    </select>
+    <div class="hplc-filter-actions">
+      <button data-act="all" title="Select all visible">All</button>
+      <button data-act="none" title="Unselect all visible">None</button>
+      <button data-act="invert" title="Invert visible selection">Invert</button>
+    </div>
+    <div class="hplc-filter-summary" id="hplcFilterSummary"></div>
+  `;
+  container.appendChild(bar);
+
+  // wire the filter dropdown
+  bar.querySelector('#hplcFilterSel').addEventListener('change', (e) => {
+    HPLC.state.filter = e.target.value;
+    hplcRenderTree();
+    hplcAutoFitView();
+    hplcDraw();
+    hplcUpdateButtons();
+    hplcRenderPeakTable();
+  });
+
+  // wire the action buttons (act only on currently-visible list)
+  bar.querySelectorAll('.hplc-filter-actions button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const visible = hplcVisibleGroups();
+      const act = btn.dataset.act;
+      visible.forEach(sg => {
+        const wasSel = HPLC.state.selected.has(sg.name);
+        let willSel;
+        if (act === 'all') willSel = true;
+        else if (act === 'none') willSel = false;
+        else willSel = !wasSel;
+        if (willSel) HPLC.state.selected.add(sg.name);
+        else { HPLC.state.selected.delete(sg.name); HPLC.state.results.delete(sg.name); }
+      });
+      hplcRenderTree();
+      hplcAutoFitView();
+      hplcDraw();
+      hplcUpdateButtons();
+      hplcRenderPeakTable();
+      hplcScheduleRefit();
+    });
+  });
+
+  // ── List of group cards (filtered) ──
+  const visibleGroups = hplcVisibleGroups();
+  const visSelected = visibleGroups.filter(sg => HPLC.state.selected.has(sg.name)).length;
+  const totalSelected = HPLC.state.selected.size;
+
+  document.getElementById('groupCount').textContent =
+    visibleGroups.length === HPLC.state.sigGroups.length
+      ? `${HPLC.state.sigGroups.length}`
+      : `${visibleGroups.length}/${HPLC.state.sigGroups.length}`;
+
+  const summary = bar.querySelector('#hplcFilterSummary');
+  summary.innerHTML = `<b>${visSelected}</b> selected of ${visibleGroups.length} visible · ${totalSelected} total`;
+
+  if (visibleGroups.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:24px;color:var(--muted);font-size:13px;text-align:center;font-family:"IBM Plex Mono",monospace;';
+    empty.textContent = 'No groups in this category';
+    container.appendChild(empty);
+    return;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'hplc-sg-list';
+  container.appendChild(list);
+
+  for (const sg of visibleGroups) {
+    const isActive = HPLC.state.selected.has(sg.name);
+    const card = document.createElement('div');
+    card.className = 'hplc-sg-item' + (isActive ? ' active' : '');
+    card.innerHTML = `
+      <input type="checkbox" ${isActive?'checked':''} aria-label="Include ${esc(sg.name)}">
+      <span class="swatch" style="background:${sg.color}"></span>
+      <span class="name">${esc(sg.name)}</span>
+      <span class="meta">${sg.time.length}pts</span>
+      <button class="cfg-btn" title="Override auto-detected channel mapping" aria-label="Channel mapping">⚙</button>
+      <button class="rm-btn" title="Remove this chromatogram from the list (file is not modified)" aria-label="Remove">×</button>
+    `;
+    list.appendChild(card);
+
+    // checkbox handler
+    card.querySelector('input').addEventListener('change', (e) => {
+      e.stopPropagation();
+      if (e.target.checked) HPLC.state.selected.add(sg.name);
+      else { HPLC.state.selected.delete(sg.name); HPLC.state.results.delete(sg.name); }
+      card.classList.toggle('active', e.target.checked);
+      summary.innerHTML = `<b>${visibleGroups.filter(g=>HPLC.state.selected.has(g.name)).length}</b> selected of ${visibleGroups.length} visible · ${HPLC.state.selected.size} total`;
+      hplcAutoFitView();
+      hplcDraw();
+      hplcUpdateButtons();
+      hplcRenderPeakTable();
+      hplcScheduleRefit();
+    });
+
+    // also: clicking the row (anywhere except the gear/remove buttons) toggles
+    card.addEventListener('click', (e) => {
+      if (e.target.matches('input,button,select,option')) return;
+      const cb = card.querySelector('input');
+      cb.checked = !cb.checked;
+      cb.dispatchEvent(new Event('change'));
+    });
+
+    // remove-from-list button (in-memory only — does not touch the TDMS file)
+    card.querySelector('.rm-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      hplcRemoveSignal(sg.name);
+    });
+
+    // ── Hidden channel-mapping editor (revealed by ⚙) ──
+    const cfg = document.createElement('div');
+    cfg.className = 'hplc-sg-config';
+    cfg.style.display = 'none';
+    cfg.innerHTML = `
+      <div class="row">
+        <label>Time</label>
+        <select data-role="time">
+          ${sg.channelOptions.map(c => `<option ${c===sg.timeChannel?'selected':''}>${esc(c)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="row">
+        <label>Signal</label>
+        <select data-role="signal">
+          ${sg.channelOptions.map(c => `<option ${c===sg.signalChannel?'selected':''}>${esc(c)}</option>`).join('')}
+        </select>
+      </div>
+    `;
+    list.appendChild(cfg);
+
+    card.querySelector('.cfg-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      cfg.style.display = cfg.style.display === 'none' ? '' : 'none';
+    });
+    cfg.querySelector('[data-role="time"]').addEventListener('change', (e) => {
+      sg.timeChannel = e.target.value;
+      hplcRefreshGroupData(sg);
+      HPLC.state.results.delete(sg.name);
+      card.querySelector('.meta').textContent = `${sg.time.length}pts`;
+      hplcAutoFitView();
+      hplcDraw();
+      hplcRenderPeakTable();
+      hplcUpdateButtons();
+      hplcScheduleRefit();
+    });
+    cfg.querySelector('[data-role="signal"]').addEventListener('change', (e) => {
+      sg.signalChannel = e.target.value;
+      hplcRefreshGroupData(sg);
+      HPLC.state.results.delete(sg.name);
+      hplcAutoFitView();
+      hplcDraw();
+      hplcRenderPeakTable();
+      hplcUpdateButtons();
+      hplcScheduleRefit();
+    });
+  }
+}
+
+/* Remove a chromatogram from the in-memory list. The original TDMS file is
+   never modified — this only affects what the analyzer is currently working
+   with. If the user wants the signal back, they re-open the file. */
+function hplcRemoveSignal(groupName) {
+  const idx = HPLC.state.sigGroups.findIndex(g => g.name === groupName);
+  if (idx < 0) return;
+  HPLC.state.sigGroups.splice(idx, 1);
+  HPLC.state.selected.delete(groupName);
+  HPLC.state.results.delete(groupName);
+  hplcRenderTree();
+  hplcAutoFitView();
+  hplcDraw();
+  hplcUpdateButtons();
+  hplcRenderPeakTable();
+  hplcToast(`Removed "${groupName}" from list`);
+}
+
+function hplcUpdateButtons() {
+  const anySelected = HPLC.state.selected.size > 0;
+  const anyResults = HPLC.state.results.size > 0;
+  document.getElementById('hplcFitBtn').disabled = !anySelected;
+  const addBtn = document.getElementById('hplcAddPeakBtn');
+  if (addBtn) addBtn.disabled = !anyResults;
+  // header CSV/PDF buttons (the visible ones)
+  const hCsv = document.getElementById('hplcCsvHeaderBtn');
+  const hPdf = document.getElementById('hplcPdfHeaderBtn');
+  if (hCsv) hCsv.disabled = !anySelected;
+  if (hPdf) hPdf.disabled = !anyResults;
+  document.getElementById('hplcEmpty').style.display = anySelected ? 'none' : 'flex';
+}
+
+// debounced auto-refit on parameter / selection change
+let hplcRefitTimer = null;
+function hplcScheduleRefit() {
+  clearTimeout(hplcRefitTimer);
+  hplcRefitTimer = setTimeout(() => {
+    if (HPLC.state.selected.size > 0) hplcRunFit();
+  }, 250);
+}
+
+// wire up parameter change listeners once
+function hplcWireParamListeners() {
+  ['hplcSmooth','hplcMinH','hplcMinD','hplcModel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || el._hplcWired) return;
+    el._hplcWired = true;
+    const evt = (el.type === 'checkbox' || el.tagName === 'SELECT') ? 'change' : 'input';
+    el.addEventListener(evt, hplcScheduleRefit);
+  });
+  // Smoothing window must be odd — a centered moving average needs the same
+  // number of points on each side of the center sample, which only works for
+  // odd window sizes. Snap any user-entered even number up to the next odd on
+  // 'change' (i.e. when they leave the field), so the displayed value matches
+  // what the algorithm actually uses.
+  const smEl = document.getElementById('hplcSmooth');
+  if (smEl && !smEl._oddWired) {
+    smEl._oddWired = true;
+    smEl.addEventListener('change', () => {
+      const raw = parseInt(smEl.value, 10);
+      if (!isFinite(raw) || raw < 1) { smEl.value = 1; return; }
+      if (raw % 2 === 0) { smEl.value = raw + 1; hplcScheduleRefit(); }
+    });
+  }
+}
+document.addEventListener('DOMContentLoaded', hplcWireParamListeners);
+hplcWireParamListeners(); // also try synchronously, in case DOM is already ready
+
+/* ───────────── Math: smoothing, baseline, peak detection, models, LM ───────────── */
+
+function hplcSmooth(y, win) {
+  if (!win || win < 2) return y.slice();
+  if (win % 2 === 0) win += 1;
+  const half = (win - 1) >> 1;
+  const n = y.length;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = 0, c = 0;
+    for (let k = -half; k <= half; k++) {
+      const j = i + k;
+      if (j >= 0 && j < n) { s += y[j]; c++; }
+    }
+    out[i] = s / c;
+  }
+  return out;
+}
+
+// Smart rolling-ball baseline (Sternberg morphological opening with auto-radius).
+// Approach:
+//   1. Detect rough local maxima of the smoothed signal and measure each peak's
+//      width above its half-max. The widest such width is our reference peak.
+//   2. Set the ball radius to ~2× that width — large enough that no real peak
+//      sits entirely under the ball (so peaks are never eroded), small enough
+//      that the ball still tracks slow baseline drift.
+//   3. Apply morphological opening: running-min over [i-r, i+r] (erosion)
+//      followed by running-max over [i-r, i+r] (dilation). The result is a
+//      lower envelope that hugs the baseline beneath the peaks.
+//   4. Smooth the opening with a window ≈ r/4 so the baseline curve is
+//      continuous rather than piecewise-constant.
+//
+// Why this beats the previous ALS approach:
+//   • ALS uses a fixed-scale Gaussian smoother. On wide peaks (σ > smoother
+//     scale), it treats the peak as drift and subtracts it. Rolling ball
+//     adapts its scale to the data, avoiding that failure.
+//   • Rolling ball is also ~10× faster on long traces because the running
+//     min/max can be computed without revisiting the full window each step
+//     (we use the simple O(n·r) version here — fast enough for 12k points).
+function hplcRollingBallBaseline(y, opts = {}) {
+  const n = y.length;
+  if (n < 5) return new Array(n).fill(0);
+
+  // ── Auto-pick the ball radius ──
+  let r;
+  if (opts.radius != null) {
+    r = opts.radius;
+  } else {
+    const sm = hplcSmooth(y, 5);
+    const ymax = Math.max(...sm);
+    const ymin = Math.min(...sm);
+    const range = ymax - ymin || 1;
+    let widest = 0;
+    for (let i = 1; i < n - 1; i++) {
+      if (sm[i] > sm[i-1] && sm[i] >= sm[i+1] && (sm[i] - ymin) > range * 0.05) {
+        const half = (sm[i] + ymin) / 2;
+        let l = i, R = i;
+        while (l > 0 && sm[l] > half) l--;
+        while (R < n - 1 && sm[R] > half) R++;
+        const w = R - l;
+        if (w > widest) widest = w;
+      }
+    }
+    // 2× widest half-max width, clamped: ≥ 20 samples, ≤ 30% of data length.
+    r = Math.max(20, Math.min(Math.floor(n * 0.3), widest * 2 || Math.floor(n * 0.05)));
+  }
+
+  // ── Morphological opening (erosion ∘ dilation) ──
+  const eroded = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const lo = Math.max(0, i - r), hi = Math.min(n - 1, i + r);
+    let mn = Infinity;
+    for (let j = lo; j <= hi; j++) if (y[j] < mn) mn = y[j];
+    eroded[i] = mn;
+  }
+  const dilated = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const lo = Math.max(0, i - r), hi = Math.min(n - 1, i + r);
+    let mx = -Infinity;
+    for (let j = lo; j <= hi; j++) if (eroded[j] > mx) mx = eroded[j];
+    dilated[i] = mx;
+  }
+
+  // ── Smooth the result so the baseline is a continuous curve ──
+  const smoothWin = Math.max(3, (Math.floor(r / 4) | 1));
+  return hplcSmooth(dilated, smoothWin);
+}
+
+// (Old ALS-style baseline kept for reference; no longer called by the analyzer.
+//  See hplcRollingBallBaseline above for the current implementation.)
+function hplcBaselineALS(y, lambda = 1e6, p = 0.002, niter = 6) {
+  const n = y.length;
+  let z = y.slice();
+  let w = new Array(n).fill(1);
+  const span = Math.max(20, Math.floor(Math.sqrt(lambda) / 30));
+  for (let it = 0; it < niter; it++) {
+    const newZ = new Array(n);
+    for (let i = 0; i < n; i++) {
+      let sw = 0, sv = 0;
+      const lo = Math.max(0, i - span), hi = Math.min(n - 1, i + span);
+      for (let j = lo; j <= hi; j++) {
+        const dist = (j - i) / span;
+        const k = Math.exp(-2 * dist * dist) * w[j];
+        sv += k * y[j];
+        sw += k;
+      }
+      newZ[i] = sw > 0 ? sv / sw : y[i];
+    }
+    z = newZ;
+    for (let i = 0; i < n; i++) {
+      w[i] = y[i] > z[i] ? p : (1 - p);
+    }
+  }
+  return z;
+}
+
+/* Estimate noise level from the data using MAD (median absolute deviation)
+   of the local residuals after a strong smoothing. Robust against peaks. */
+function hplcEstimateNoise(y) {
+  const n = y.length;
+  if (n < 10) return 0;
+  // strong smoothing window: ~3% of data length, min 11
+  const win = Math.max(11, Math.round(n * 0.03) | 1);
+  const sm = hplcSmooth(y, win);
+  const resid = new Array(n);
+  for (let i = 0; i < n; i++) resid[i] = y[i] - sm[i];
+  const sorted = resid.slice().sort((a,b) => a - b);
+  const median = sorted[sorted.length >> 1];
+  const abs = resid.map(r => Math.abs(r - median)).sort((a,b) => a - b);
+  const mad = abs[abs.length >> 1];
+  // MAD * 1.4826 → equivalent Gaussian σ
+  return 1.4826 * mad;
+}
+
+/* Compute peak prominence (height above the highest "valley" between
+   the peak and a higher neighbor on either side). This is the proper
+   way to score a peak — discriminates real peaks from noise wiggles. */
+function hplcProminence(y, idx) {
+  const n = y.length;
+  const h = y[idx];
+  // walk left until we find a higher point or reach the edge
+  let leftMin = h;
+  for (let i = idx - 1; i >= 0; i--) {
+    if (y[i] > h) break;
+    if (y[i] < leftMin) leftMin = y[i];
+  }
+  // walk right
+  let rightMin = h;
+  for (let i = idx + 1; i < n; i++) {
+    if (y[i] > h) break;
+    if (y[i] < rightMin) rightMin = y[i];
+  }
+  // the more conservative side (the higher of the two minima) defines the base
+  const base = Math.max(leftMin, rightMin);
+  return h - base;
+}
+
+/* Peak detection: prominence-based + noise-aware + window-max dedup.
+   A peak qualifies only if:
+     - It's a local maximum
+     - height >= minHeight  (user-set fraction of trace max)
+     - height - baseline above noise >= K*noise (auto, K=5)
+     - prominence > 0.5 * height  (filters wiggles inside larger features)
+     - It's the tallest local max within ±minDist time units  */
+function hplcDetectPeaks(x, y, minHeight, minDist, noise) {
+  const n = y.length;
+  const candidates = [];
+  for (let i = 1; i < n - 1; i++) {
+    if (y[i] > y[i-1] && y[i] >= y[i+1] && y[i] >= minHeight) {
+      // noise filter: at least 5σ above noise
+      if (noise && y[i] < 5 * noise) continue;
+      candidates.push({ idx: i, x: x[i], y: y[i] });
+    }
+  }
+  if (candidates.length === 0) return [];
+
+  // prominence filter: peak height must be substantially above local valley.
+  // For a noisy spike, prominence ≈ noise. For a real peak, prominence ≈ height.
+  const promThresh = noise ? 4 * noise : 0;
+  const prominent = candidates.filter(p => hplcProminence(y, p.idx) >= promThresh);
+  if (prominent.length === 0) return [];
+
+  // Dedup using "window-max" rule: a peak is kept only if it's the tallest
+  // candidate within ±minDist time units. This is more robust than the
+  // greedy approach (which depended on iteration order at ties).
+  const kept = [];
+  for (const p of prominent) {
+    let isLocalMaxInWindow = true;
+    for (const q of prominent) {
+      if (q === p) continue;
+      if (Math.abs(q.x - p.x) <= minDist && q.y > p.y) {
+        isLocalMaxInWindow = false;
+        break;
+      }
+      // tie-break: when two candidates have the same height within window,
+      // keep the earlier one
+      if (Math.abs(q.x - p.x) <= minDist && q.y === p.y && q.idx < p.idx) {
+        isLocalMaxInWindow = false;
+        break;
+      }
+    }
+    if (isLocalMaxInWindow) kept.push(p);
+  }
+  kept.sort((a, b) => a.x - b.x);
+  return kept;
+}
+
+function hplcGaussian(t, A, mu, sigma) {
+  const d = (t - mu) / sigma;
+  return A * Math.exp(-0.5 * d * d);
+}
+
+// Stable EMG. Falls back to a Gaussian when τ is essentially zero.
+// Numerically robust for both peak tails. The naive "erfcx asymptotic" branch
+// fails when z is large negative (exp(z²) overflows). The fix: detect both
+// regimes and use a form that doesn't multiply Inf by 0.
+function hplcEMG(t, A, mu, sigma, tau) {
+  if (tau <= 1e-9) return hplcGaussian(t, A, mu, sigma);
+  if (sigma <= 0) return 0;
+
+  const dt = t - mu;
+  const z = (1/Math.SQRT2) * (sigma/tau - dt/sigma);
+  const exponent = (sigma*sigma)/(2*tau*tau) - dt/tau;
+
+  // Abramowitz–Stegun 7.1.26 erf approximation
+  function erf(x) {
+    const a = Math.abs(x);
+    const tt = 1/(1+0.3275911*a);
+    const y = 1 - (((((1.061405429*tt - 1.453152027)*tt) + 1.421413741)*tt - 0.284496736)*tt + 0.254829592)*tt
+                 * Math.exp(-a*a);
+    return x >= 0 ? y : -y;
+  }
+
+  // Three regimes:
+  // (1) exponent reasonable AND erfc(z) won't underflow → standard form
+  // (2) exponent very negative (deep right tail) → asymptotic erfcx, but only valid for z > 0
+  // (3) very deep tail or numerical problems → return 0 (peak amplitude is negligible there)
+
+  if (exponent > 700) return 0;  // would overflow exp; this is the leading edge way before peak
+  if (exponent < -700) return 0; // way past the tail; effectively zero
+
+  if (exponent < -50 && z > 0) {
+    // asymptotic right-tail form: emg = A/(2τ) * sqrt(π/2) * (σ/τ) * w(z) ... easier numerically:
+    // factor out exp(-(t-μ)²/(2σ²)) which is finite and small
+    // emg(t) = A/(2τ) * exp(-½((t−μ)/σ)²) * erfcx(z)
+    const erfcx = Math.exp(z*z) * (1 - erf(z));
+    if (!isFinite(erfcx)) return 0;
+    return (A/(2*tau)) * erfcx * Math.exp(-0.5 * (dt/sigma) * (dt/sigma));
+  }
+
+  // Standard form: works whenever exponent doesn't overflow exp.
+  const erfcVal = 1 - erf(z);
+  // when erfcVal == 0 exactly and exponent is huge, we'd have Inf*0; guard:
+  if (erfcVal === 0) return 0;
+  const expVal = Math.exp(exponent);
+  if (!isFinite(expVal)) return 0;
+  const out = (A/(2*tau)) * expVal * erfcVal;
+  return isFinite(out) ? out : 0;
+}
+
+// Levenberg-Marquardt with optional box constraints
+function hplcFitLM(model, p0, x, y, opts = {}) {
+  const maxIter = opts.maxIter || 80;
+  const tol = opts.tol || 1e-7;
+  let lambda = 1e-3;
+  const bounds = opts.bounds || null;
+  const np = p0.length, n = x.length;
+
+  const clamp = p => bounds ? p.map((v,i) => {
+    const b = bounds[i]; if (!b) return v;
+    return v < b[0] ? b[0] : v > b[1] ? b[1] : v;
+  }) : p;
+
+  const residuals = (p) => { const r = new Array(n); for (let i=0;i<n;i++) r[i] = y[i] - model(x[i], ...p); return r; };
+  const ssr = (r) => { let s=0; for (let i=0;i<r.length;i++) s += r[i]*r[i]; return s; };
+  const jacobian = (p) => {
+    const J = []; for (let i=0;i<n;i++) J.push(new Array(np));
+    for (let k=0;k<np;k++) {
+      const h = Math.max(1e-7, Math.abs(p[k])*1e-6);
+      const a = p.slice(); a[k] += h;
+      const b = p.slice(); b[k] -= h;
+      for (let i=0;i<n;i++) J[i][k] = (model(x[i], ...a) - model(x[i], ...b))/(2*h);
+    }
+    return J;
+  };
+  const solve = (A, rhs) => {
+    const m = A.length;
+    const M = A.map((row,i) => [...row, rhs[i]]);
+    for (let i=0;i<m;i++) {
+      let mx = i; for (let k=i+1;k<m;k++) if (Math.abs(M[k][i])>Math.abs(M[mx][i])) mx=k;
+      [M[i], M[mx]] = [M[mx], M[i]];
+      if (Math.abs(M[i][i]) < 1e-14) return null;
+      for (let k=i+1;k<m;k++) { const f = M[k][i]/M[i][i]; for (let j=i;j<=m;j++) M[k][j] -= f*M[i][j]; }
+    }
+    const out = new Array(m);
+    for (let i=m-1;i>=0;i--) { let s=M[i][m]; for (let j=i+1;j<m;j++) s -= M[i][j]*out[j]; out[i] = s / M[i][i]; }
+    return out;
+  };
+
+  let p = clamp(p0.slice());
+  let r = residuals(p);
+  let chi2 = ssr(r);
+
+  for (let it=0; it<maxIter; it++) {
+    const J = jacobian(p);
+    const JtJ = []; const Jtr = new Array(np).fill(0);
+    for (let i=0;i<np;i++) JtJ.push(new Array(np).fill(0));
+    for (let i=0;i<n;i++) for (let a=0;a<np;a++) {
+      Jtr[a] += J[i][a]*r[i];
+      for (let b=0;b<np;b++) JtJ[a][b] += J[i][a]*J[i][b];
+    }
+    for (let a=0;a<np;a++) JtJ[a][a] *= (1+lambda);
+    const dp = solve(JtJ, Jtr);
+    if (!dp) { lambda *= 10; if (lambda > 1e12) break; continue; }
+    const pn = clamp(p.map((v,i) => v + dp[i]));
+    const rn = residuals(pn);
+    const c2 = ssr(rn);
+    if (c2 < chi2) {
+      const rel = (chi2 - c2) / Math.max(chi2, 1e-30);
+      p = pn; chi2 = c2; r = rn; lambda /= 3;
+      if (rel < tol) break;
+    } else {
+      lambda *= 5;
+      if (lambda > 1e12) break;
+    }
+  }
+
+  const ymean = y.reduce((a,b)=>a+b,0)/n;
+  let sst = 0; for (let i=0;i<n;i++) sst += (y[i]-ymean)*(y[i]-ymean);
+  return { params: p, chi2, r2: 1 - chi2/Math.max(sst, 1e-30) };
+}
+
+function hplcFWHM(x, y) {
+  const ymax = Math.max(...y), half = ymax/2;
+  let l=0, r=y.length-1;
+  for (let i=0;i<y.length;i++) if (y[i]>=half) { l=i; break; }
+  for (let i=y.length-1;i>=0;i--) if (y[i]>=half) { r=i; break; }
+  const interp = (i, dir) => {
+    const j = i+dir; if (j<0 || j>=y.length) return x[i];
+    if (y[j]===y[i]) return x[i];
+    return x[i] + (half - y[i])*(x[j]-x[i])/(y[j]-y[i]);
+  };
+  return Math.max(0, interp(r,1) - interp(l,-1));
+}
+
+function hplcAsym(x, y, frac) {
+  const ymax = Math.max(...y), h = ymax*frac;
+  let pi = 0; for (let i=0;i<y.length;i++) if (y[i]===ymax) { pi=i; break; }
+  let l=null, r=null;
+  for (let i=pi;i>=0;i--) if (y[i]<=h) { l=i; break; }
+  for (let i=pi;i<y.length;i++) if (y[i]<=h) { r=i; break; }
+  if (l===null || r===null) return NaN;
+  const a = x[pi]-x[l], b = x[r]-x[pi];
+  return a > 0 ? b/a : NaN;
+}
+
+function hplcProcess(time, signal, opts) {
+  // Primary path: rolling-ball baseline correction (this is what the UI shows).
+  // The opts.baseline flag is now ignored — rolling ball is robust enough to
+  // run unconditionally. The flag is kept as opt-out only if explicitly set
+  // to the string 'none' (advanced/internal use).
+  const baseline = (opts.baseline === 'none')
+    ? new Array(signal.length).fill(0)
+    : hplcRollingBallBaseline(signal);
+
+  const result = hplcFitPeaksOnResiduals(time, signal, baseline, opts);
+
+  // Secondary path: also fit on the raw signal (no baseline). This isn't
+  // shown in the UI but is included in the PDF report so the user can sanity
+  // -check borderline cases where baseline subtraction shifts the answer.
+  const zeroBaseline = new Array(signal.length).fill(0);
+  const noBaselineResult = opts.alsoFitNoBaseline
+    ? hplcFitPeaksOnResiduals(time, signal, zeroBaseline, opts)
+    : null;
+
+  return {
+    baseline: result.baseline,
+    corrected: result.corrected,
+    smoothed: result.smoothed,
+    peaks: result.peaks,
+    // Parallel result with no baseline subtraction; null if not requested.
+    noBaseline: noBaselineResult ? {
+      peaks: noBaselineResult.peaks,
+      corrected: noBaselineResult.corrected,
+    } : null,
+  };
+}
+
+// Core peak-fitting routine: given a signal and a precomputed baseline,
+// detect peaks in (signal − baseline), fit each one with EMG/Gaussian, and
+// return the peak list. Factored out of hplcProcess so we can run it twice
+// (once with rolling-ball baseline, once on the raw signal).
+function hplcFitPeaksOnResiduals(time, signal, baseline, opts) {
+  const corrected = signal.map((v,i) => v - baseline[i]);
+  const sm = hplcSmooth(corrected, opts.smoothWin);
+  const ymax = Math.max(...sm);
+  const minH = ymax * (opts.minHeightPct/100);
+  const noise = hplcEstimateNoise(corrected);
+  const peaksRaw = hplcDetectPeaks(time, sm, minH, opts.minDist, noise);
+
+  const dt = time.length > 1 ? (time[1] - time[0]) : 1;
+  const peaks = [];
+
+  // ─── Pre-compute fit windows bounded by neighbors. ───
+  // For each detected peak, the fit window cannot extend past the *valley*
+  // to the left or right neighbor peak. This prevents peak-1's tail from
+  // capturing peak-2 and producing degenerate over-wide fits.
+  // The valley is the local minimum of `sm` between two peaks. We use it as
+  // a hard left/right boundary.
+  const valleys = [];
+  for (let i = 0; i < peaksRaw.length - 1; i++) {
+    const a = peaksRaw[i].idx, b = peaksRaw[i+1].idx;
+    let vIdx = a, vMin = Infinity;
+    for (let j = a; j <= b; j++) {
+      if (sm[j] < vMin) { vMin = sm[j]; vIdx = j; }
+    }
+    valleys.push(vIdx);
+  }
+  // boundaries[i] = [leftBound, rightBound] in sample indices for peak i
+  const boundaries = peaksRaw.map((pk, i) => {
+    const left  = i === 0 ? 0           : valleys[i - 1];
+    const right = i === peaksRaw.length - 1 ? sm.length - 1 : valleys[i];
+    return [left, right];
+  });
+
+  for (let pIdx = 0; pIdx < peaksRaw.length; pIdx++) {
+    const pk = peaksRaw[pIdx];
+    const [bndLo, bndHi] = boundaries[pIdx];
+
+    // Expand outward from peak until signal drops below 1% of peak height OR
+    // we hit a neighbor-valley boundary.
+    const thresh = pk.y * 0.01;
+    let lo = pk.idx, hi = pk.idx;
+    while (lo > bndLo && sm[lo] > thresh) lo--;
+    while (hi < bndHi && sm[hi] > thresh) hi++;
+    // pad slightly but never past boundary
+    lo = Math.max(bndLo, lo - 3);
+    hi = Math.min(bndHi, hi + 8);
+
+    // sanity: window must be at least 5 points
+    if (hi - lo < 5) {
+      lo = Math.max(bndLo, pk.idx - 5);
+      hi = Math.min(bndHi, pk.idx + 5);
+    }
+
+    const xw = time.slice(lo, hi+1);
+    const yw = corrected.slice(lo, hi+1);
+
+    // FWHM seed (constrained to window)
+    let halfL = pk.idx, halfR = pk.idx;
+    while (halfL > lo && sm[halfL] > pk.y/2) halfL--;
+    while (halfR < hi && sm[halfR] > pk.y/2) halfR++;
+    const fwhm0 = Math.max(dt*2, time[halfR] - time[halfL]);
+    const sigma0 = fwhm0 / 2.3548;
+
+    const wxRange = time[hi] - time[lo];
+    let result, A, mu, sigma, tau, fit, height, area, fwhm, asym, tR, model;
+
+    if (opts.model === 'emg') {
+      const A0 = pk.y * sigma0 * Math.sqrt(2*Math.PI);
+      const tau0 = sigma0 * 0.5;
+      const bounds = [
+        [0, Infinity],
+        [time[lo], time[hi]],
+        [dt*0.5, wxRange],
+        [0, wxRange]   // τ ≥ 0  → physical (tailing only)
+      ];
+      result = hplcFitLM(hplcEMG, [A0, pk.x, sigma0, tau0], xw, yw, { bounds });
+      [A, mu, sigma, tau] = result.params;
+      fit = xw.map(t => hplcEMG(t, A, mu, sigma, tau));
+      area = A;            // EMG: A is integrated area
+      height = Math.max(...fit);
+      let mv = -Infinity; tR = mu;
+      for (let i=0;i<xw.length;i++) if (fit[i]>mv){ mv=fit[i]; tR=xw[i]; }
+      fwhm = hplcFWHM(xw, fit);
+      asym = hplcAsym(xw, fit, 0.1);
+      model = 'emg';
+    } else {
+      const bounds = [
+        [0, Infinity],
+        [time[lo], time[hi]],
+        [dt*0.5, wxRange],
+      ];
+      result = hplcFitLM(hplcGaussian, [pk.y, pk.x, sigma0], xw, yw, { bounds });
+      [A, mu, sigma] = result.params;
+      tau = 0;
+      fit = xw.map(t => hplcGaussian(t, A, mu, sigma));
+      height = A;
+      area = A * sigma * Math.sqrt(2*Math.PI);
+      fwhm = 2.3548 * sigma;
+      asym = 1.0;
+      tR = mu;
+      model = 'gauss';
+    }
+
+    if (!isFinite(height) || height <= 0) continue;
+    if (result.r2 < 0.5) continue;
+    if (sigma < dt * 1.2) continue;   // too narrow → spurious
+
+    peaks.push({
+      model, tR, height, area, fwhm, sigma, tau, asym, r2: result.r2,
+      window: { lo, hi }, fitX: xw, fitCurve: fit,
+      params: { A, mu, sigma, tau }
+    });
+  }
+
+  // Final safety: deduplicate fitted peaks whose retention times converged
+  // to the same value within minDist (can happen if neighboring seeds both
+  // converge to the same nearby tall peak). Keep the one with best R².
+  const dedupedPeaks = [];
+  for (const pk of peaks) {
+    const dup = dedupedPeaks.find(q => Math.abs(q.tR - pk.tR) < opts.minDist);
+    if (!dup) {
+      dedupedPeaks.push(pk);
+    } else if (pk.r2 > dup.r2) {
+      // replace the worse fit with this better one
+      const idx = dedupedPeaks.indexOf(dup);
+      dedupedPeaks[idx] = pk;
+    }
+  }
+  dedupedPeaks.sort((a, b) => a.tR - b.tR);
+
+  return { baseline, corrected, smoothed: sm, peaks: dedupedPeaks };
+}
+
+/* ───────────── Run fit ───────────── */
+function hplcRunFit() {
+  const opts = {
+    smoothWin: parseInt(document.getElementById('hplcSmooth').value) || 1,
+    minHeightPct: parseFloat(document.getElementById('hplcMinH').value) || 2,
+    minDist: parseFloat(document.getElementById('hplcMinD').value) || 0,
+    model: document.getElementById('hplcModel').value,
+    // The no-baseline (audit) fit is computed lazily — only when the PDF is
+    // exported, since on a 12k-point raw signal it can take several seconds
+    // and the UI never displays it.
+    alsoFitNoBaseline: false,
+  };
+  HPLC.state.results.clear();
+  // If the user was in add-peak mode, exit it — the existing manual peaks
+  // get wiped along with the auto-detected ones in HPLC.state.results.clear().
+  if (HPLC.state.addingPeak) hplcToggleAddPeak();
+  const sgs = HPLC.state.sigGroups.filter(g => HPLC.state.selected.has(g.name));
+  if (sgs.length === 0) { hplcToast('Select at least one group'); return; }
+
+  // Show busy cursor + dim the interface so the user sees the fit is running
+  HPLC.state.fitting = true;
+  document.body.classList.add('hplc-busy');
+  hplcToast(`Fitting ${sgs.length} group${sgs.length>1?'s':''}…`);
+
+  // defer so the toast and busy cursor can render
+  setTimeout(() => {
+    let totalPeaks = 0;
+    const t0 = performance.now();
+    try {
+      for (const sg of sgs) {
+        try {
+          const r = hplcProcess(sg.time, sg.signal, opts);
+          HPLC.state.results.set(sg.name, r);
+          totalPeaks += r.peaks.length;
+        } catch (e) {
+          console.error('Fit failed for', sg.name, e);
+        }
+      }
+    } finally {
+      HPLC.state.fitting = false;
+      document.body.classList.remove('hplc-busy');
+    }
+    const dt = (performance.now() - t0) / 1000;
+    hplcRenderPeakTable();
+    hplcDraw();
+    hplcUpdateButtons();
+    hplcToast(`Fit complete · ${totalPeaks} peak${totalPeaks===1?'':'s'} across ${sgs.length} group${sgs.length===1?'':'s'} · ${dt.toFixed(1)}s`);
+  }, 30);
+}
+
+/* ───────────── Peak table ───────────── */
+function hplcRenderPeakTable() {
+  const tbody = document.querySelector('#hplcPeaksTable tbody');
+  tbody.innerHTML = '';
+  let total = 0, row = 1;
+  for (const sg of HPLC.state.sigGroups) {
+    if (!HPLC.state.results.has(sg.name)) continue;
+    const r = HPLC.state.results.get(sg.name);
+    // compute total area for this group so we can show each peak's % share
+    const totalArea = r.peaks.reduce((s, p) => s + (p.area || 0), 0);
+    for (let pkIdx = 0; pkIdx < r.peaks.length; pkIdx++) {
+      const pk = r.peaks[pkIdx];
+      total++;
+      const r2cls = pk.r2 > 0.99 ? 'r2-good' : pk.r2 > 0.95 ? '' : pk.r2 > 0.85 ? 'r2-warn' : 'r2-bad';
+      const pct = totalArea > 0 ? (pk.area / totalArea * 100) : 0;
+      const tr = document.createElement('tr');
+      // FWHM, σ, τ and Asym remain in the data (used by CSV/PDF) — they're
+      // hidden here to keep the on-screen list focused on what an analyst
+      // typically reports: tR, height, area, % composition, fit quality.
+      tr.innerHTML = `
+        <td style="color:var(--muted)">${row++}</td>
+        <td><span class="group-cell"><span class="swatch" style="background:${sg.color}"></span>${esc(sg.name)}</span></td>
+        <td>${pk.tR.toFixed(3)}</td>
+        <td>${pk.height.toExponential(3)}</td>
+        <td>${pk.area.toExponential(3)}</td>
+        <td>${pct.toFixed(2)}%</td>
+        <td class="${r2cls}">${pk.r2.toFixed(4)}</td>
+        <td><button class="peak-del-btn" title="Remove this peak from the fit" data-group="${esc(sg.name)}" data-idx="${pkIdx}">×</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+  document.getElementById('hplcPeakCount').textContent =
+    total === 0 ? '— no peaks —' : `${total} peak${total===1?'':'s'}`;
+  if (total === 0 && HPLC.state.results.size > 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:18px;">No peaks above detection threshold — try lowering "Min height %"</td></tr>`;
+  }
+  // wire up the delete buttons (per row, after table is rebuilt)
+  tbody.querySelectorAll('.peak-del-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const gName = btn.dataset.group;
+      const idx = parseInt(btn.dataset.idx, 10);
+      hplcRemovePeak(gName, idx);
+    });
+  });
+}
+
+/* Remove a peak from a group's fitted-peak list and refresh chart + table.
+   The fit itself isn't recomputed — the user is curating the result. */
+function hplcRemovePeak(groupName, peakIdx) {
+  const r = HPLC.state.results.get(groupName);
+  if (!r || peakIdx < 0 || peakIdx >= r.peaks.length) return;
+  r.peaks.splice(peakIdx, 1);
+  hplcRenderPeakTable();
+  hplcDraw();
+  hplcToast(`Peak removed from "${groupName}"`);
+}
+
+/* ─────────── Manual peak addition ───────────
+   Used when the auto-detector misses a peak the user can clearly see on the
+   chart. The user clicks on or near the peak; we fit a single EMG (or
+   Gaussian) seeded at the click time, against the same baseline-corrected
+   signal the auto-detection used.
+
+   Concretely:
+     • The fit uses the existing baseline already cached in the result entry.
+     • A local window is built around the click time (default ±20 samples,
+       trimmed if the corrected signal drops below 1% of the click-point
+       height to avoid eating neighbors).
+     • The fit is unconstrained-by-neighbors — manual peaks bypass the valley
+       boundary rule, since the user is asserting a peak is here.
+     • If the fit converges with R² > 0.3 we accept it, otherwise we toast
+       a warning and don't insert. Manual peaks can have lower R² than
+       auto-detected ones because the user might be fitting noise; we still
+       want to be liberal but not silent. */
+function hplcToggleAddPeak() {
+  const btn = document.getElementById('hplcAddPeakBtn');
+  HPLC.state.addingPeak = !HPLC.state.addingPeak;
+  document.body.classList.toggle('hplc-add-peak', HPLC.state.addingPeak);
+  btn.classList.toggle('adding-peak', HPLC.state.addingPeak);
+  btn.textContent = HPLC.state.addingPeak ? '× cancel add' : '+ peak';
+  if (HPLC.state.addingPeak) {
+    hplcToast('Click on a peak to add it. Click "× cancel add" when done.');
+  }
+}
+
+/* Pick which group the click "belongs to" by finding the selected, fitted
+   group whose corrected signal at click_t is closest to click_y. */
+function hplcGroupForClick(tClick, yClick) {
+  const sgs = HPLC.state.sigGroups.filter(g => HPLC.state.selected.has(g.name)
+                                              && HPLC.state.results.has(g.name));
+  if (sgs.length === 0) return null;
+  if (sgs.length === 1) return sgs[0];
+  let best = null, bestD = Infinity;
+  for (const sg of sgs) {
+    // closest sample to tClick
+    let idx = 0, dt = Infinity;
+    for (let i = 0; i < sg.time.length; i++) {
+      const d = Math.abs(sg.time[i] - tClick);
+      if (d < dt) { dt = d; idx = i; }
+    }
+    const yAtT = sg.signal[idx];
+    const d = Math.abs(yAtT - yClick);
+    if (d < bestD) { bestD = d; best = sg; }
+  }
+  return best;
+}
+
+function hplcAddPeakAt(tClick, yClick) {
+  const sg = hplcGroupForClick(tClick, yClick);
+  if (!sg) {
+    hplcToast('No fitted chromatogram to add to — re-fit first');
+    return;
+  }
+  const r = HPLC.state.results.get(sg.name);
+  if (!r) {
+    hplcToast('Run a fit first, then add manual peaks');
+    return;
+  }
+
+  const time = sg.time;
+  const baseline = r.baseline;
+  const corrected = sg.signal.map((v,i) => v - baseline[i]);
+  const dt = time.length > 1 ? (time[1] - time[0]) : 1;
+  const n = time.length;
+
+  // Find click sample
+  let clickIdx = 0, clickD = Infinity;
+  for (let i = 0; i < n; i++) {
+    const d = Math.abs(time[i] - tClick);
+    if (d < clickD) { clickD = d; clickIdx = i; }
+  }
+
+  // Snap to local maximum within ±5 samples — the user's click is rarely
+  // exactly on the peak top, but should be near it.
+  let pkIdx = clickIdx;
+  let pkY = corrected[clickIdx];
+  for (let off = -5; off <= 5; off++) {
+    const j = clickIdx + off;
+    if (j < 0 || j >= n) continue;
+    if (corrected[j] > pkY) { pkY = corrected[j]; pkIdx = j; }
+  }
+
+  // If the local maximum is essentially zero or negative, nothing to fit.
+  if (pkY <= 0 || !isFinite(pkY)) {
+    hplcToast('No positive signal at click point');
+    return;
+  }
+
+  // Build window: expand outward until corrected signal drops below 1% of
+  // the seed height, but cap at 200 samples each side so we don't suck in
+  // distant peaks. (Manual mode skips the valley-bounded logic of auto-fit.)
+  const thresh = pkY * 0.01;
+  let lo = pkIdx, hi = pkIdx;
+  while (lo > 0 && corrected[lo] > thresh && (pkIdx - lo) < 200) lo--;
+  while (hi < n - 1 && corrected[hi] > thresh && (hi - pkIdx) < 200) hi++;
+  lo = Math.max(0, lo - 3);
+  hi = Math.min(n - 1, hi + 8);
+  if (hi - lo < 5) {
+    lo = Math.max(0, pkIdx - 5);
+    hi = Math.min(n - 1, pkIdx + 5);
+  }
+
+  const xw = time.slice(lo, hi+1);
+  const yw = corrected.slice(lo, hi+1);
+
+  // FWHM seed within window
+  let halfL = pkIdx, halfR = pkIdx;
+  while (halfL > lo && corrected[halfL] > pkY/2) halfL--;
+  while (halfR < hi && corrected[halfR] > pkY/2) halfR++;
+  const fwhm0 = Math.max(dt*2, time[halfR] - time[halfL]);
+  const sigma0 = fwhm0 / 2.3548;
+  const wxRange = time[hi] - time[lo];
+
+  const model = document.getElementById('hplcModel').value;
+  let result, A, mu, sigma, tau, fit, height, area, fwhm, asym, tR, modelLabel;
+  if (model === 'emg') {
+    const A0 = pkY * sigma0 * Math.sqrt(2*Math.PI);
+    const tau0 = sigma0 * 0.5;
+    const bounds = [[0, Infinity], [time[lo], time[hi]], [dt*0.5, wxRange], [0, wxRange]];
+    result = hplcFitLM(hplcEMG, [A0, time[pkIdx], sigma0, tau0], xw, yw, { bounds });
+    [A, mu, sigma, tau] = result.params;
+    fit = xw.map(t => hplcEMG(t, A, mu, sigma, tau));
+    area = A;
+    height = Math.max(...fit);
+    let mv = -Infinity; tR = mu;
+    for (let i = 0; i < xw.length; i++) if (fit[i] > mv) { mv = fit[i]; tR = xw[i]; }
+    fwhm = hplcFWHM(xw, fit);
+    asym = hplcAsym(xw, fit, 0.1);
+    modelLabel = 'emg';
+  } else {
+    const bounds = [[0, Infinity], [time[lo], time[hi]], [dt*0.5, wxRange]];
+    result = hplcFitLM(hplcGaussian, [pkY, time[pkIdx], sigma0], xw, yw, { bounds });
+    [A, mu, sigma] = result.params;
+    tau = 0;
+    fit = xw.map(t => hplcGaussian(t, A, mu, sigma));
+    height = A;
+    area = A * sigma * Math.sqrt(2*Math.PI);
+    fwhm = 2.3548 * sigma;
+    asym = 1.0;
+    tR = mu;
+    modelLabel = 'gauss';
+  }
+
+  // Manual mode is more permissive: accept R² ≥ 0.3 (vs ≥ 0.5 for auto).
+  // Still reject obviously bad fits (NaN/zero height, sub-sample width).
+  if (!isFinite(height) || height <= 0) { hplcToast('Fit produced no peak — try clicking closer to the maximum'); return; }
+  if (sigma < dt * 1.2)                   { hplcToast('Fitted peak is too narrow (sub-sample) — likely noise'); return; }
+  if (result.r2 < 0.3)                    { hplcToast(`Fit quality too low (R² = ${result.r2.toFixed(2)}). Peak not added.`); return; }
+
+  // Insert and resort by tR so the peak list stays in retention-time order.
+  r.peaks.push({
+    model: modelLabel, tR, height, area, fwhm, sigma, tau, asym, r2: result.r2,
+    window: { lo, hi }, fitX: xw, fitCurve: fit,
+    params: { A, mu, sigma, tau },
+    manual: true,    // flag so we could differentiate in exports if desired
+  });
+  r.peaks.sort((a, b) => a.tR - b.tR);
+
+  hplcRenderPeakTable();
+  hplcDraw();
+  hplcToast(`Added peak at tR = ${tR.toFixed(2)} (R² = ${result.r2.toFixed(3)})`);
+}
+
+/* ───────────── Chart ───────────── */
+const hplcCanvas = document.getElementById('hplcChart');
+const hplcCtx = hplcCanvas.getContext('2d');
+
+function hplcResizeCanvas() {
+  const wrap = document.getElementById('hplcChartWrap');
+  if (!wrap.clientWidth) return;
+  const dpr = window.devicePixelRatio || 1;
+  hplcCanvas.width  = wrap.clientWidth  * dpr;
+  hplcCanvas.height = wrap.clientHeight * dpr;
+  hplcCanvas.style.width  = wrap.clientWidth + 'px';
+  hplcCanvas.style.height = wrap.clientHeight + 'px';
+  hplcCtx.setTransform(dpr,0,0,dpr,0,0);
+  hplcDraw();
+}
+window.addEventListener('resize', () => {
+  if (document.body.classList.contains('hplc-mode')) hplcResizeCanvas();
+});
+
+function hplcCssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function hplcAutoFitView() {
+  const sgs = HPLC.state.sigGroups.filter(g => HPLC.state.selected.has(g.name));
+  if (!sgs.length) return;
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (const g of sgs) {
+    for (let i=0; i<g.time.length; i++) {
+      const x = g.time[i], y = g.signal[i];
+      if (x < xmin) xmin = x; if (x > xmax) xmax = x;
+      if (y < ymin) ymin = y; if (y > ymax) ymax = y;
+    }
+  }
+  if (!isFinite(xmin)) return;
+  const yPad = (ymax - ymin) * 0.08 || 0.001;
+  HPLC.state.view = { xMin: xmin, xMax: xmax, yMin: ymin - yPad, yMax: ymax + yPad };
+}
+
+function hplcNiceTicks(min, max, count) {
+  if (max <= min) return [min];
+  const step = hplcNiceNum((max-min)/count, true);
+  const a = Math.floor(min/step)*step, b = Math.ceil(max/step)*step;
+  const out = [];
+  for (let v=a; v<=b+step*0.001; v+=step) if (v>=min-step*0.01 && v<=max+step*0.01) out.push(v);
+  return out;
+}
+function hplcNiceNum(r, round) {
+  const e = Math.floor(Math.log10(r)), f = r/Math.pow(10,e);
+  let nf;
+  if (round) nf = f<1.5 ? 1 : f<3 ? 2 : f<7 ? 5 : 10;
+  else        nf = f<=1 ? 1 : f<=2 ? 2 : f<=5 ? 5 : 10;
+  return nf * Math.pow(10, e);
+}
+
+function hplcDraw() {
+  if (!document.body.classList.contains('hplc-mode')) return;
+  const W = hplcCanvas.clientWidth, H = hplcCanvas.clientHeight;
+  if (!W || !H) return;
+  hplcCtx.clearRect(0,0,W,H);
+
+  const sgs = HPLC.state.sigGroups.filter(g => HPLC.state.selected.has(g.name));
+  if (!sgs.length) return;
+
+  const ink = hplcCssVar('--text');
+  const muted = hplcCssVar('--muted');
+  const grid = hplcCssVar('--border2');
+  const axis = hplcCssVar('--border');
+
+  const M = { l: 64, r: 16, t: 12, b: 36 };
+  const pw = W - M.l - M.r, ph = H - M.t - M.b;
+  const v = HPLC.state.view;
+  const xpx = x => M.l + (x - v.xMin)/(v.xMax - v.xMin) * pw;
+  const ypx = y => M.t + ph - (y - v.yMin)/(v.yMax - v.yMin) * ph;
+
+  // grid
+  hplcCtx.strokeStyle = grid;
+  hplcCtx.lineWidth = 1;
+  hplcCtx.font = "12px 'IBM Plex Mono', monospace";
+  hplcCtx.fillStyle = muted;
+  const xT = hplcNiceTicks(v.xMin, v.xMax, 8);
+  const yT = hplcNiceTicks(v.yMin, v.yMax, 6);
+  hplcCtx.beginPath();
+  for (const t of xT) { const px = xpx(t); hplcCtx.moveTo(px, M.t); hplcCtx.lineTo(px, M.t+ph); }
+  for (const t of yT) { const py = ypx(t); hplcCtx.moveTo(M.l, py); hplcCtx.lineTo(M.l+pw, py); }
+  hplcCtx.stroke();
+
+  // tick labels
+  hplcCtx.textAlign = 'center'; hplcCtx.textBaseline = 'top';
+  for (const t of xT) hplcCtx.fillText(t.toFixed((v.xMax-v.xMin)<10?2:1), xpx(t), M.t+ph+5);
+  hplcCtx.textAlign = 'right'; hplcCtx.textBaseline = 'middle';
+  for (const t of yT) hplcCtx.fillText(t.toPrecision(3), M.l-6, ypx(t));
+
+  // axes
+  hplcCtx.strokeStyle = axis;
+  hplcCtx.beginPath();
+  hplcCtx.moveTo(M.l, M.t); hplcCtx.lineTo(M.l, M.t+ph); hplcCtx.lineTo(M.l+pw, M.t+ph);
+  hplcCtx.stroke();
+
+  // axis labels
+  hplcCtx.fillStyle = ink;
+  hplcCtx.font = "13px 'IBM Plex Mono', monospace";
+  hplcCtx.textAlign = 'center'; hplcCtx.textBaseline = 'bottom';
+  hplcCtx.fillText('time', M.l + pw/2, H - 4);
+  hplcCtx.save();
+  hplcCtx.translate(14, M.t + ph/2);
+  hplcCtx.rotate(-Math.PI/2);
+  hplcCtx.textBaseline = 'top';
+  hplcCtx.fillText('signal', 0, 0);
+  hplcCtx.restore();
+
+  // data
+  for (const g of sgs) {
+    const r = HPLC.state.results.get(g.name);
+    // raw
+    hplcCtx.strokeStyle = g.color;
+    hplcCtx.globalAlpha = r ? 0.40 : 1.0;
+    hplcCtx.lineWidth = 1.2;
+    hplcCtx.beginPath();
+    let first = true;
+    for (let i=0;i<g.time.length;i++) {
+      const x = xpx(g.time[i]), y = ypx(g.signal[i]);
+      if (first) { hplcCtx.moveTo(x,y); first = false; }
+      else hplcCtx.lineTo(x,y);
+    }
+    hplcCtx.stroke();
+    hplcCtx.globalAlpha = 1;
+
+    if (r) {
+      // baseline
+      hplcCtx.strokeStyle = muted;
+      hplcCtx.setLineDash([3,4]);
+      hplcCtx.lineWidth = 1;
+      hplcCtx.beginPath();
+      let first2 = true;
+      for (let i=0;i<g.time.length;i++) {
+        const x = xpx(g.time[i]), y = ypx(r.baseline[i]);
+        if (first2) { hplcCtx.moveTo(x,y); first2 = false; } else hplcCtx.lineTo(x,y);
+      }
+      hplcCtx.stroke();
+      hplcCtx.setLineDash([]);
+
+      // each fit curve
+      hplcCtx.strokeStyle = g.color;
+      hplcCtx.lineWidth = 2;
+      for (let pkIdx = 0; pkIdx < r.peaks.length; pkIdx++) {
+        const pk = r.peaks[pkIdx];
+        hplcCtx.beginPath();
+        for (let i=0;i<pk.fitX.length;i++) {
+          const x = xpx(pk.fitX[i]);
+          const y = ypx(pk.fitCurve[i] + r.baseline[pk.window.lo + i]);
+          if (i===0) hplcCtx.moveTo(x,y); else hplcCtx.lineTo(x,y);
+        }
+        hplcCtx.stroke();
+
+        // marker (visual only — peak removal happens from the table, not the chart)
+        const mid = Math.floor(pk.fitX.length/2);
+        const mx = xpx(pk.tR);
+        const my = ypx(pk.height + r.baseline[pk.window.lo + mid]);
+        hplcCtx.fillStyle = g.color;
+        hplcCtx.beginPath();
+        hplcCtx.arc(mx, my - 7, 3, 0, Math.PI*2);
+        hplcCtx.fill();
+        hplcCtx.fillStyle = ink;
+        hplcCtx.font = "12px 'IBM Plex Mono', monospace";
+        hplcCtx.textAlign = 'center'; hplcCtx.textBaseline = 'bottom';
+        hplcCtx.fillText(pk.tR.toFixed(2), mx, my-11);
+      }
+    }
+  }
+
+  // box-zoom selection rectangle (when shift-drag is in progress)
+  // The rectangle visualizes which axis(es) the zoom will affect:
+  // X-only → full-height vertical band; Y-only → full-width horizontal band.
+  if (typeof hplcBoxZoom !== 'undefined' && hplcBoxZoom) {
+    const mode = HPLC.state.zoomMode;
+    let x1 = Math.min(hplcBoxZoom.x, hplcBoxZoom.x2);
+    let x2 = Math.max(hplcBoxZoom.x, hplcBoxZoom.x2);
+    let y1 = Math.min(hplcBoxZoom.y, hplcBoxZoom.y2);
+    let y2 = Math.max(hplcBoxZoom.y, hplcBoxZoom.y2);
+    if (mode === 'x') { y1 = M.t; y2 = M.t + ph; }   // full chart height
+    if (mode === 'y') { x1 = M.l; x2 = M.l + pw; }   // full chart width
+    hplcCtx.fillStyle = 'rgba(37,99,235,0.10)';
+    hplcCtx.strokeStyle = 'rgba(37,99,235,0.7)';
+    hplcCtx.lineWidth = 1;
+    hplcCtx.fillRect(x1, y1, x2-x1, y2-y1);
+    hplcCtx.strokeRect(x1, y1, x2-x1, y2-y1);
+  }
+
+  // legend
+  const legend = document.getElementById('hplcLegend');
+  legend.style.display = 'block';
+  legend.innerHTML = sgs.map(g => {
+    const r = HPLC.state.results.get(g.name);
+    return `<div class="row">
+      <span class="swatch" style="background:${g.color}"></span>
+      <span class="label">${esc(g.name)}</span>
+      ${r ? `<span class="meta">${r.peaks.length} pk</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/* ───────────── Pan / zoom / crosshair ─────────────
+   Mouse model:
+     • left-drag           → pan
+     • shift + left-drag   → box zoom (rectangle to zoom into)
+     • wheel               → zoom (Shift = X-only, Ctrl/Cmd = Y-only)
+     • double-click        → reset to data extents
+     • toolbar buttons     → step zoom + reset                                */
+let hplcDrag = null;
+let hplcBoxZoom = null;   // {x,y,x2,y2} pixel coords, when shift-drag is in flight
+
+const HPLC_CHART_M = { l: 64, r: 16, t: 12, b: 36 };
+
+function hplcPxToData(px, py) {
+  const W = hplcCanvas.clientWidth, H = hplcCanvas.clientHeight;
+  const M = HPLC_CHART_M;
+  const pw = W-M.l-M.r, ph = H-M.t-M.b;
+  const v = HPLC.state.view;
+  return {
+    x: v.xMin + (px - M.l)/pw * (v.xMax - v.xMin),
+    y: v.yMax - (py - M.t)/ph * (v.yMax - v.yMin),
+    inside: px > M.l && px < M.l+pw && py > M.t && py < M.t+ph
+  };
+}
+
+hplcCanvas.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;             // only left button
+
+  // ── Add-peak mode: a click commits a peak; we don't start a drag/zoom. ──
+  // The actual peak insertion happens on mouseup below (so a click-with-no-drag
+  // is the action; an accidental small drag still commits the peak at the
+  // mousedown position).
+  if (HPLC.state.addingPeak) {
+    HPLC.state._mouseDown = { x: e.offsetX, y: e.offsetY, addPeak: true };
+    return;
+  }
+
+  // record mousedown position so mouseup can decide click-vs-drag
+  HPLC.state._mouseDown = { x: e.offsetX, y: e.offsetY };
+  if (e.shiftKey) {
+    // start a box-zoom selection
+    hplcBoxZoom = { x: e.offsetX, y: e.offsetY, x2: e.offsetX, y2: e.offsetY };
+  } else {
+    hplcDrag = { x: e.offsetX, y: e.offsetY, view: {...HPLC.state.view} };
+  }
+});
+
+hplcCanvas.addEventListener('mousemove', e => {
+  const W = hplcCanvas.clientWidth, H = hplcCanvas.clientHeight;
+  const M = HPLC_CHART_M;
+  const pw = W-M.l-M.r, ph = H-M.t-M.b;
+
+  // (Chart-based peak click/hover removed by design — peaks are deleted from
+  //  the table's × button only. The on-chart markers remain as visual labels.)
+
+  // cursor style decisions (in priority order)
+  hplcCanvas.style.cursor = hplcBoxZoom ? 'crosshair'
+                          : hplcDrag    ? 'grabbing'
+                          : e.shiftKey  ? 'crosshair'
+                          : 'grab';
+
+  if (hplcBoxZoom) {
+    hplcBoxZoom.x2 = e.offsetX;
+    hplcBoxZoom.y2 = e.offsetY;
+    hplcDraw();
+  } else if (hplcDrag) {
+    const dx = (e.offsetX - hplcDrag.x)/pw * (hplcDrag.view.xMax - hplcDrag.view.xMin);
+    const dy = (e.offsetY - hplcDrag.y)/ph * (hplcDrag.view.yMax - hplcDrag.view.yMin);
+    HPLC.state.view = {
+      xMin: hplcDrag.view.xMin - dx, xMax: hplcDrag.view.xMax - dx,
+      yMin: hplcDrag.view.yMin + dy, yMax: hplcDrag.view.yMax + dy
+    };
+    hplcDraw();
+  }
+
+  // crosshair readout (always plain coordinates now)
+  const p = hplcPxToData(e.offsetX, e.offsetY);
+  if (p.inside) {
+    const c = document.getElementById('hplcCursor');
+    c.style.display = 'block';
+    c.textContent = `t = ${p.x.toFixed(3)}    y = ${p.y.toPrecision(4)}`;
+  }
+});
+
+hplcCanvas.addEventListener('mouseup', e => {
+  const md = HPLC.state._mouseDown;
+  HPLC.state._mouseDown = null;
+
+  // ── Add-peak mode commit ──
+  // If mouseup is in add-peak mode and the user didn't drag, fit a peak
+  // centered at the click time on the chromatogram closest to the click point.
+  if (md && md.addPeak && HPLC.state.addingPeak) {
+    const moved = (Math.abs(e.offsetX - md.x) > 6 || Math.abs(e.offsetY - md.y) > 6);
+    if (!moved) {
+      const p = hplcPxToData(e.offsetX, e.offsetY);
+      if (p.inside) hplcAddPeakAt(p.x, p.y);
+    }
+    // stay in add-peak mode so the user can place several in a row
+    return;
+  }
+
+  if (hplcBoxZoom) {
+    // finalize box zoom — honors HPLC.state.zoomMode
+    const mode = HPLC.state.zoomMode;
+    const minDim = 6; // px — ignore tiny boxes (treat as click)
+    const dx = Math.abs(hplcBoxZoom.x2 - hplcBoxZoom.x);
+    const dy = Math.abs(hplcBoxZoom.y2 - hplcBoxZoom.y);
+    // X-only: only need horizontal extent; Y-only: only vertical;
+    // XY: both must be substantial.
+    const enough = (mode === 'x') ? dx > minDim
+                 : (mode === 'y') ? dy > minDim
+                 : (dx > minDim && dy > minDim);
+    if (enough) {
+      const a = hplcPxToData(Math.min(hplcBoxZoom.x, hplcBoxZoom.x2),
+                              Math.min(hplcBoxZoom.y, hplcBoxZoom.y2));
+      const b = hplcPxToData(Math.max(hplcBoxZoom.x, hplcBoxZoom.x2),
+                              Math.max(hplcBoxZoom.y, hplcBoxZoom.y2));
+      const cur = HPLC.state.view;
+      HPLC.state.view = {
+        xMin: (mode === 'y') ? cur.xMin : Math.min(a.x, b.x),
+        xMax: (mode === 'y') ? cur.xMax : Math.max(a.x, b.x),
+        yMin: (mode === 'x') ? cur.yMin : Math.min(a.y, b.y),
+        yMax: (mode === 'x') ? cur.yMax : Math.max(a.y, b.y),
+      };
+    }
+    hplcBoxZoom = null;
+    hplcDrag = null;
+    hplcDraw();
+    return;
+  }
+
+  hplcDrag = null;
+});
+
+hplcCanvas.addEventListener('mouseleave', () => {
+  hplcDrag = null;
+  hplcBoxZoom = null;
+  document.getElementById('hplcCursor').style.display = 'none';
+  hplcDraw();
+});
+
+hplcCanvas.addEventListener('dblclick', () => { hplcAutoFitView(); hplcDraw(); });
+
+// Wheel zoom. Axes affected:
+//   • zoomMode toolbar setting picks the default ('xy', 'x' only, 'y' only)
+//   • Holding Shift forces X-only regardless of mode
+//   • Holding Ctrl/Cmd forces Y-only regardless of mode
+hplcCanvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  e.stopPropagation();
+  const p = hplcPxToData(e.offsetX, e.offsetY);
+  const v = HPLC.state.view;
+  const k = e.deltaY > 0 ? 1.15 : 1/1.15;
+
+  let zoomX, zoomY;
+  if (e.shiftKey) { zoomX = true;  zoomY = false; }
+  else if (e.ctrlKey || e.metaKey) { zoomX = false; zoomY = true; }
+  else {
+    const m = HPLC.state.zoomMode;
+    zoomX = m !== 'y';
+    zoomY = m !== 'x';
+  }
+
+  HPLC.state.view = {
+    xMin: zoomX ? p.x + (v.xMin-p.x)*k : v.xMin,
+    xMax: zoomX ? p.x + (v.xMax-p.x)*k : v.xMax,
+    yMin: zoomY ? p.y + (v.yMin-p.y)*k : v.yMin,
+    yMax: zoomY ? p.y + (v.yMax-p.y)*k : v.yMax,
+  };
+  hplcDraw();
+}, { passive: false });
+
+// Set the default zoom-axis mode from the UI.
+function hplcSetZoomMode(mode) {
+  HPLC.state.zoomMode = mode;
+  // visually reflect the active mode on the buttons
+  document.querySelectorAll('.hplc-zoom-mode-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+}
+
+// Reset zoom helper for the toolbar button.
+function hplcResetZoom() { hplcAutoFitView(); hplcDraw(); }
+
+// Step zoom by a factor centered on view center (used by + / − toolbar buttons).
+// Honors the same X / Y / XY mode toggle as the wheel.
+function hplcZoomBy(k) {
+  const v = HPLC.state.view;
+  const cx = (v.xMin + v.xMax) / 2;
+  const cy = (v.yMin + v.yMax) / 2;
+  const mode = HPLC.state.zoomMode;
+  const zoomX = mode !== 'y';
+  const zoomY = mode !== 'x';
+  HPLC.state.view = {
+    xMin: zoomX ? cx + (v.xMin - cx) * k : v.xMin,
+    xMax: zoomX ? cx + (v.xMax - cx) * k : v.xMax,
+    yMin: zoomY ? cy + (v.yMin - cy) * k : v.yMin,
+    yMax: zoomY ? cy + (v.yMax - cy) * k : v.yMax,
+  };
+  hplcDraw();
+}
+
+/* ───────────── Toast ───────────── */
+let hplcToastTimer = null;
+function hplcToast(msg) {
+  const t = document.getElementById('hplcToast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(hplcToastTimer);
+  hplcToastTimer = setTimeout(() => { t.style.display = 'none'; }, 2400);
+}
+
+/* ───────────── CSV export
+   Per-group columns: time, signal_raw, baseline, signal_corrected, smoothed, fit_total
+   Plus a peak summary block at the bottom.
+   Uses your existing showSaveFilePicker pattern + locale separator. */
+async function hplcExportCSV() {
+  const sgs = HPLC.state.sigGroups.filter(g => HPLC.state.selected.has(g.name));
+  if (sgs.length === 0) { alert('No groups selected.'); return; }
+
+  // ── Lazy: compute no-baseline audit fits if not cached (same pattern as PDF) ──
+  // The summary block at the end of the CSV reports area_no_baseline alongside
+  // the rolling-ball area, so the user can sanity-check borderline cases.
+  const opts = {
+    smoothWin: parseInt(document.getElementById('hplcSmooth').value) || 1,
+    minHeightPct: parseFloat(document.getElementById('hplcMinH').value) || 2,
+    minDist: parseFloat(document.getElementById('hplcMinD').value) || 0,
+    model: document.getElementById('hplcModel').value,
+  };
+  const needAudit = sgs.filter(sg => {
+    const r = HPLC.state.results.get(sg.name);
+    return r && !r.noBaseline;
+  });
+  if (needAudit.length) {
+    document.body.classList.add('hplc-busy');
+    hplcToast('Computing no-baseline audit fit for CSV…');
+    await new Promise(rs => setTimeout(rs, 30));
+    for (const sg of needAudit) {
+      const r = HPLC.state.results.get(sg.name);
+      try {
+        const zero = new Array(sg.signal.length).fill(0);
+        const noBl = hplcFitPeaksOnResiduals(sg.time, sg.signal, zero, opts);
+        r.noBaseline = { peaks: noBl.peaks, corrected: noBl.corrected };
+      } catch (e) {
+        r.noBaseline = { peaks: [], corrected: sg.signal.slice() };
+      }
+    }
+    document.body.classList.remove('hplc-busy');
+  }
+
+  // Build columns
+  const columns = [];
+  for (const g of sgs) {
+    const r = HPLC.state.results.get(g.name);
+    columns.push({ header: `${g.name}/time`, values: g.time });
+    columns.push({ header: `${g.name}/${g.signalChannel}`, values: g.signal });
+    if (r) {
+      columns.push({ header: `${g.name}/baseline`, values: r.baseline });
+      const corrected = g.signal.map((v,i) => v - r.baseline[i]);
+      columns.push({ header: `${g.name}/corrected`, values: corrected });
+      columns.push({ header: `${g.name}/smoothed`, values: r.smoothed });
+      // sum of fit curves at each sample (NaN where no fit)
+      const fitTotal = new Array(g.time.length).fill('');
+      for (let i=0;i<g.time.length;i++) {
+        let total = 0, has = false;
+        for (const pk of r.peaks) {
+          if (i >= pk.window.lo && i <= pk.window.lo + pk.fitCurve.length - 1) {
+            total += pk.fitCurve[i - pk.window.lo];
+            has = true;
+          }
+        }
+        if (has) fitTotal[i] = total;
+      }
+      columns.push({ header: `${g.name}/fit_sum`, values: fitTotal });
+    }
+  }
+
+  const useSemi = (1.1).toLocaleString().includes(',');
+  const SEP = useSemi ? ';' : ',';
+  const numRows = Math.max(...columns.map(c => c.values.length));
+
+  // Peak summary appended after the time-series block.
+  // The area_no_baseline column lets the user sanity-check whether the
+  // rolling-ball baseline subtraction shifted the reported peak area.
+  const summaryRows = [];
+  summaryRows.push(['# Peak summary'].join(SEP));
+  summaryRows.push(['# group','peak_n','tR','height','area','area_no_baseline','fwhm','sigma','tau','asymmetry','r2'].join(SEP));
+  for (const sg of sgs) {
+    const r = HPLC.state.results.get(sg.name);
+    if (!r) continue;
+    const noBlPeaks = (r.noBaseline && r.noBaseline.peaks) || [];
+    const matchNoBl = (tR) => {
+      let best = null, bestD = Infinity;
+      for (const p of noBlPeaks) { const d = Math.abs(p.tR - tR); if (d < bestD) { bestD = d; best = p; } }
+      return (best && bestD < 3) ? best : null;
+    };
+    r.peaks.forEach((pk,i) => {
+      const m = matchNoBl(pk.tR);
+      summaryRows.push([
+        sg.name, i+1, pk.tR, pk.height, pk.area,
+        m ? m.area : '',
+        pk.fwhm, pk.sigma, pk.tau,
+        isFinite(pk.asym) ? pk.asym : '', pk.r2
+      ].map(c => csvCell(c, SEP)).join(SEP));
+    });
+  }
+
+  const baseName = (document.getElementById('statusText').textContent || 'export').replace(/\.tdms$/i,'') + '_hplc.csv';
+
+  // Use the same dual-mode writer pattern from your exportCSV
+  let writable = null;
+  const blobParts = [];
+  try {
+    if (window.showSaveFilePicker) {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: baseName,
+        types: [{ description: 'CSV file', accept: { 'text/csv': ['.csv'] } }],
+      });
+      writable = await handle.createWritable();
+    }
+  } catch (e) { if (e.name === 'AbortError') return; }
+
+  const writeData = async (s) => { if (writable) await writable.write(s); else blobParts.push(s); };
+
+  // header
+  await writeData(columns.map(c => csvCell(c.header, SEP)).join(SEP) + '\r\n');
+  const CHUNK = 5000;
+  for (let i=0; i<numRows; i+=CHUNK) {
+    const chunk = [];
+    const end = Math.min(i+CHUNK, numRows);
+    for (let j=i; j<end; j++) {
+      chunk.push(columns.map(c => j < c.values.length ? csvCell(c.values[j], SEP) : '').join(SEP));
+    }
+    await writeData(chunk.join('\r\n') + '\r\n');
+  }
+  // blank line then summary
+  await writeData('\r\n' + summaryRows.join('\r\n') + '\r\n');
+
+  if (writable) {
+    await writable.close();
+  } else {
+    const blob = new Blob(blobParts, { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = baseName; a.click();
+    URL.revokeObjectURL(url);
+  }
+  hplcToast('CSV exported');
+}
+
+/* ───────────── PDF export ─────────────
+   Cover · per-group page (chart + peak table + summary) · method page.
+   Uses jsPDF (loaded in <head>). Same blue/cyan accent as the UI. */
+async function hplcExportPDF() {
+  if (HPLC.state.results.size === 0) { alert('Run a fit first.'); return; }
+
+  // ── Lazy: compute the no-baseline audit fit if it isn't already cached ──
+  // The PDF needs the raw-signal fit alongside the rolling-ball one for the
+  // "Area (no BL)" column. We compute and cache it here, on demand, because
+  // running it eagerly during interactive use is too slow on long traces.
+  const opts = {
+    smoothWin: parseInt(document.getElementById('hplcSmooth').value) || 1,
+    minHeightPct: parseFloat(document.getElementById('hplcMinH').value) || 2,
+    minDist: parseFloat(document.getElementById('hplcMinD').value) || 0,
+    model: document.getElementById('hplcModel').value,
+  };
+  document.body.classList.add('hplc-busy');
+  hplcToast('Computing no-baseline audit fit for PDF…');
+  // Yield once so the toast paints before the heavy work.
+  await new Promise(r => setTimeout(r, 30));
+  for (const [groupName, r] of HPLC.state.results.entries()) {
+    if (r.noBaseline) continue; // already computed
+    const sg = HPLC.state.sigGroups.find(g => g.name === groupName);
+    if (!sg) continue;
+    try {
+      const zero = new Array(sg.signal.length).fill(0);
+      const noBl = hplcFitPeaksOnResiduals(sg.time, sg.signal, zero, opts);
+      r.noBaseline = { peaks: noBl.peaks, corrected: noBl.corrected };
+    } catch (e) {
+      console.warn('No-baseline audit fit failed for', groupName, e);
+      r.noBaseline = { peaks: [], corrected: sg.signal.slice() };
+    }
+  }
+  document.body.classList.remove('hplc-busy');
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const fileName = document.getElementById('statusText').textContent || 'data';
+
+  const ACC = [37, 99, 235];     // accent blue
+  const ACC2 = [8, 145, 178];    // accent cyan
+  const TXT = [26, 29, 39];      // ink
+  const MUTE = [124, 130, 160];
+
+  // ── Cover page ──
+  doc.setFillColor(245, 246, 248);
+  doc.rect(0, 0, pageW, pageH, 'F');
+  doc.setFillColor(...ACC);
+  doc.rect(0, 0, pageW, 4, 'F');
+
+  doc.setFont('courier','bold');
+  doc.setTextColor(...ACC);
+  doc.setFontSize(11);
+  doc.text('TDMS.reader / HPLC analyzer', 20, 22);
+
+  doc.setTextColor(...TXT);
+  doc.setFontSize(24);
+  doc.setFont('helvetica','bold');
+  doc.text('HPLC Analysis Report', 20, 50);
+
+  doc.setFont('courier','normal');
+  doc.setFontSize(10);
+  doc.setTextColor(...MUTE);
+  const now = new Date();
+  let totalPeaks = 0;
+  for (const r of HPLC.state.results.values()) totalPeaks += r.peaks.length;
+  const meta = [
+    ['File',     fileName],
+    ['Date',     now.toISOString().slice(0,19).replace('T',' ')],
+    ['Groups',   `${HPLC.state.results.size} processed`],
+    ['Peaks',    `${totalPeaks} fitted`],
+    ['Model',    document.getElementById('hplcModel').value === 'emg' ? 'Exponentially Modified Gaussian' : 'Gaussian'],
+    ['Smoothing',`window = ${document.getElementById('hplcSmooth').value} pts`],
+    ['Baseline', 'rolling ball (auto-radius) — see no-baseline column for audit'],
+  ];
+  let yp = 68;
+  for (const [k,v] of meta) {
+    doc.setTextColor(...MUTE); doc.text(k.padEnd(10), 20, yp);
+    doc.setTextColor(...TXT);  doc.text(': ' + v, 50, yp);
+    yp += 6;
+  }
+
+  // overview chart on cover
+  doc.setDrawColor(220);
+  doc.setLineWidth(0.2);
+  doc.rect(20, 130, pageW-40, 95);
+  doc.setFontSize(9);
+  doc.setTextColor(...MUTE);
+  doc.text('OVERVIEW · all selected groups', 22, 135);
+  hplcDrawChartToPDF(doc, 20, 130, pageW-40, 95,
+    HPLC.state.sigGroups.filter(g => HPLC.state.results.has(g.name)));
+
+  doc.setFontSize(8);
+  doc.setTextColor(...MUTE);
+  doc.text('NitaD, Univ Paris-Saclay · v1.2.0', 20, pageH-12);
+
+  // ── Per-group pages ──
+  for (const sg of HPLC.state.sigGroups) {
+    if (!HPLC.state.results.has(sg.name)) continue;
+    const r = HPLC.state.results.get(sg.name);
+    doc.addPage();
+    doc.setFillColor(255,255,255);
+    doc.rect(0,0,pageW,pageH,'F');
+    doc.setFillColor(...ACC);
+    doc.rect(0,0,pageW,4,'F');
+
+    // header
+    doc.setFont('courier','bold');
+    doc.setTextColor(...ACC);
+    doc.setFontSize(10);
+    doc.text('TDMS.reader / HPLC', 14, 14);
+    doc.setTextColor(...TXT);
+    doc.text(sg.name.toUpperCase(), pageW-14, 14, { align: 'right' });
+
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(15);
+    doc.text(sg.name, 14, 28);
+    doc.setFont('courier','normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...MUTE);
+    doc.text(
+      `time: ${sg.timeChannel}  ·  signal: ${sg.signalChannel}  ·  ${sg.time.length} pts  ·  range: ${sg.time[0].toPrecision(4)}–${sg.time[sg.time.length-1].toPrecision(4)}`,
+      14, 33);
+
+    // chart
+    doc.setDrawColor(220);
+    doc.setLineWidth(0.2);
+    doc.rect(14, 38, pageW-28, 90);
+    hplcDrawChartToPDF(doc, 14, 38, pageW-28, 90, [sg]);
+
+    // peak table
+    let tableY = 138;
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...TXT);
+    doc.text('Fitted Peaks', 14, tableY);
+
+    if (r.peaks.length === 0) {
+      doc.setFont('courier','normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...MUTE);
+      doc.text('No peaks detected above threshold.', 14, tableY+8);
+    } else {
+      // Column layout. The "Area (no BL)" column shows the peak area that
+      // would have been reported with no baseline subtraction at all — useful
+      // for sanity-checking borderline cases where the rolling ball might
+      // have eaten part of a wide peak. Row widths kept tight to fit A4.
+      const cols   = ['#', 'tR', 'Height', 'Area', 'Area (no BL)', 'Area %', 'FWHM', 'sigma', 'tau', 'Asym', 'R2'];
+      const colW   = [7, 16, 19, 19, 22, 14, 14, 14, 14, 12, 13];
+      doc.setFontSize(9);
+      doc.setFont('courier','bold');
+      doc.setFillColor(240, 241, 244);
+      doc.rect(14, tableY+4, pageW-28, 7, 'F');
+      doc.setTextColor(...MUTE);
+      let xc = 14;
+      cols.forEach((c,i) => { doc.text(c, xc+2, tableY+9); xc += colW[i]; });
+
+      doc.setFont('courier','normal');
+      doc.setTextColor(...TXT);
+      // Pre-compute total area for the % column.
+      const totalAreaPDF = r.peaks.reduce((s, p) => s + (p.area || 0), 0);
+      // Match each baseline-corrected peak to its closest-tR no-baseline peak
+      // (if any) to populate the audit column. If no match within minDist, '-'.
+      const noBlPeaks = (r.noBaseline && r.noBaseline.peaks) || [];
+      function matchNoBl(tR) {
+        let best = null, bestD = Infinity;
+        for (const p of noBlPeaks) {
+          const d = Math.abs(p.tR - tR);
+          if (d < bestD) { bestD = d; best = p; }
+        }
+        // accept the match if within the typical peak-width band (~3 time units)
+        return (best && bestD < 3) ? best : null;
+      }
+      let rowY = tableY + 16;
+      r.peaks.forEach((pk, i) => {
+        if (i % 2 === 0) {
+          doc.setFillColor(250,250,251);
+          doc.rect(14, rowY-4.5, pageW-28, 6, 'F');
+        }
+        const pctPDF = totalAreaPDF > 0 ? (pk.area / totalAreaPDF * 100) : 0;
+        const m = matchNoBl(pk.tR);
+        const cells = [
+          (i+1).toString(),
+          pk.tR.toFixed(3),
+          pk.height.toExponential(2),
+          pk.area.toExponential(2),
+          m ? m.area.toExponential(2) : '-',
+          pctPDF.toFixed(2) + '%',
+          pk.fwhm.toFixed(3),
+          pk.sigma.toFixed(4),
+          pk.tau.toFixed(4),
+          isFinite(pk.asym) ? pk.asym.toFixed(2) : '-',
+          pk.r2.toFixed(4)
+        ];
+        let xx = 14;
+        cells.forEach((c,j) => { doc.text(c, xx+2, rowY); xx += colW[j]; });
+        rowY += 6;
+      });
+
+      // summary
+      rowY += 4;
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(10);
+      doc.setTextColor(...TXT);
+      doc.text('Summary', 14, rowY); rowY += 5;
+      doc.setFont('courier','normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...MUTE);
+      const totalA = r.peaks.reduce((s,p)=>s+p.area, 0);
+      const meanR2 = r.peaks.reduce((s,p)=>s+p.r2, 0) / r.peaks.length;
+      const validAsym = r.peaks.filter(p => isFinite(p.asym));
+      doc.text(`Peaks fitted   : ${r.peaks.length}`, 14, rowY); rowY += 4;
+      doc.text(`Total area     : ${totalA.toExponential(3)}`, 14, rowY); rowY += 4;
+      doc.text(`Mean R2        : ${meanR2.toFixed(4)}`, 14, rowY); rowY += 4;
+      if (validAsym.length) {
+        doc.text(`Mean asymmetry : ${(validAsym.reduce((s,p)=>s+p.asym,0)/validAsym.length).toFixed(2)}`, 14, rowY); rowY += 4;
+      }
+      // (Per-peak % composition is now an "Area %" column in the table above.)
+    }
+
+    doc.setFontSize(8);
+    doc.setTextColor(...MUTE);
+    doc.text(fileName, 14, pageH-8);
+    doc.text(`Page ${doc.internal.getNumberOfPages()}`, pageW-14, pageH-8, { align: 'right' });
+  }
+
+  // (Method documentation has been moved out of the PDF report and is now in
+  //  the standalone help.html — that keeps reports lean and lets the help
+  //  document evolve independently. The PDF carries cover + per-group pages.)
+
+  const baseName = fileName.replace(/\.tdms$/i,'') + '_hplc_report.pdf';
+  doc.save(baseName);
+  hplcToast('PDF report exported');
+}
+
+function hplcHexToRgb(hex) {
+  const h = hex.replace('#','');
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+
+function hplcDrawChartToPDF(doc, x, y, w, h, sgs) {
+  const M = { l: 18, r: 4, t: 4, b: 10 };
+  const pw = w - M.l - M.r, ph = h - M.t - M.b;
+
+  // compute view from data
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (const g of sgs) {
+    for (let i=0;i<g.time.length;i++) {
+      if (g.time[i]<xmin) xmin=g.time[i]; if (g.time[i]>xmax) xmax=g.time[i];
+      if (g.signal[i]<ymin) ymin=g.signal[i]; if (g.signal[i]>ymax) ymax=g.signal[i];
+    }
+  }
+  const yPad = (ymax - ymin) * 0.08 || 0.001;
+  ymin -= yPad; ymax += yPad;
+  const xToMm = t => x + M.l + (t-xmin)/(xmax-xmin)*pw;
+  const yToMm = v => y + M.t + ph - (v-ymin)/(ymax-ymin)*ph;
+
+  // grid
+  doc.setDrawColor(225);
+  doc.setLineWidth(0.1);
+  const xT = hplcNiceTicks(xmin, xmax, 8);
+  const yT = hplcNiceTicks(ymin, ymax, 5);
+  for (const t of xT) doc.line(xToMm(t), y+M.t, xToMm(t), y+M.t+ph);
+  for (const t of yT) doc.line(x+M.l, yToMm(t), x+M.l+pw, yToMm(t));
+
+  // axes
+  doc.setDrawColor(60);
+  doc.setLineWidth(0.3);
+  doc.line(x+M.l, y+M.t, x+M.l, y+M.t+ph);
+  doc.line(x+M.l, y+M.t+ph, x+M.l+pw, y+M.t+ph);
+
+  // tick labels
+  doc.setFont('courier','normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(80);
+  for (const t of xT) doc.text(t.toFixed(1), xToMm(t), y+M.t+ph+3, { align: 'center' });
+  for (const t of yT) doc.text(t.toExponential(1), x+M.l-1, yToMm(t)+1, { align: 'right' });
+  doc.setFontSize(8); doc.text('time', x+M.l+pw/2, y+h-1, { align: 'center' });
+
+  // draw
+  for (const g of sgs) {
+    const c = hplcHexToRgb(g.color);
+    const r = HPLC.state.results.get(g.name);
+    // raw (faded if fitted)
+    if (r) {
+      doc.setDrawColor(
+        Math.round(c[0] + (255-c[0])*0.55),
+        Math.round(c[1] + (255-c[1])*0.55),
+        Math.round(c[2] + (255-c[2])*0.55));
+    } else {
+      doc.setDrawColor(c[0], c[1], c[2]);
+    }
+    doc.setLineWidth(0.25);
+    for (let i=1;i<g.time.length;i++) {
+      doc.line(xToMm(g.time[i-1]), yToMm(g.signal[i-1]),
+               xToMm(g.time[i]),   yToMm(g.signal[i]));
+    }
+    if (r) {
+      // baseline dashed
+      doc.setDrawColor(170);
+      doc.setLineWidth(0.15);
+      doc.setLineDashPattern([0.5, 0.7], 0);
+      for (let i=1;i<g.time.length;i++) {
+        doc.line(xToMm(g.time[i-1]), yToMm(r.baseline[i-1]),
+                 xToMm(g.time[i]),   yToMm(r.baseline[i]));
+      }
+      doc.setLineDashPattern([], 0);
+
+      // fits
+      doc.setDrawColor(c[0], c[1], c[2]);
+      doc.setLineWidth(0.5);
+      for (const pk of r.peaks) {
+        for (let i=1;i<pk.fitX.length;i++) {
+          const x1 = xToMm(pk.fitX[i-1]);
+          const y1 = yToMm(pk.fitCurve[i-1] + r.baseline[pk.window.lo + i - 1]);
+          const x2 = xToMm(pk.fitX[i]);
+          const y2 = yToMm(pk.fitCurve[i]   + r.baseline[pk.window.lo + i]);
+          doc.line(x1, y1, x2, y2);
+        }
+        // label
+        doc.setFontSize(7.5);
+        doc.setTextColor(40);
+        const mid = Math.floor(pk.fitX.length/2);
+        const lblY = yToMm(pk.height + r.baseline[pk.window.lo + mid]) - 1.5;
+        doc.text(pk.tR.toFixed(2), xToMm(pk.tR), lblY, { align: 'center' });
+      }
+    }
+  }
+}
+
+</script>
+
+</body>
+</html>
