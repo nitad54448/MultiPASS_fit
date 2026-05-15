@@ -1,5 +1,5 @@
 # HPLC Analyzer Documentation
-*v1.2.x · how the tool reads your TDMS, finds peaks, fits them, and exports the results*
+*v1.2.x · A tool for reading a specific TDMS file with HPLC data, finds peaks, fits them, and exports the results*
 
 The analyzer takes a National Instruments TDMS file containing one or more chromatograms, lets you pick which traces to analyze, and produces a peak list with retention time, area, and a fit-quality score for each peak. Everything runs locally in your browser.
 
