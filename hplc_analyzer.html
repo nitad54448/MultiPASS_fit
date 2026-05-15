@@ -916,7 +916,8 @@
   <button id="csvBtn" class="hdr-btn" onclick="exportCSV()" style="display:none" title="Export raw TDMS channels as CSV (legacy)"><span class="ic"></span>TDMS · CSV</button>
   <button id="hplcInspectBtn" class="hdr-btn toggle" onclick="toggleHPLCMode()" style="display:none" title="Switch to raw TDMS inspector view"><span class="ic"></span>Inspect raw</button>
   <button id="hplcCsvHeaderBtn" class="hdr-btn" onclick="hplcExportCSV()" style="display:none" disabled title="Export selected groups + fits as CSV"><span class="ic"></span>CSV</button>
-  <button id="hplcPdfHeaderBtn" class="hdr-btn" onclick="hplcExportPDF()" style="display:none" disabled title="Export PDF report"><span class="ic"></span>PDF Report</button>
+  <button id="hplcPdfHeaderBtn" class="hdr-btn" onclick="hplcExportPDF()" style="display:none" disabled title="Export HPLC fit & peak report (PDF)"><span class="ic"></span>HPLC Report</button>
+  <button id="hplcExpReportBtn" class="hdr-btn" onclick="hplcExportExpReport()" style="display:none" title="Export experimental report (PDF) with Temperature, Pressure, Ledger and History"><span class="ic"></span>Exp Report</button>
 
   <div class="vline" id="hdrVline" style="display:none"></div>
 
@@ -1609,6 +1610,7 @@ function resetUI() {
   document.getElementById('hplcInspectBtn').classList.remove('active');
   document.getElementById('hplcCsvHeaderBtn').style.display='none';
   document.getElementById('hplcPdfHeaderBtn').style.display='none';
+  document.getElementById('hplcExpReportBtn').style.display='none';
   { const _hv=document.getElementById('hdrVline'); if(_hv) _hv.style.display='none'; }
   document.body.classList.remove('hplc-mode');
   document.getElementById('treeContainer').innerHTML='';
@@ -1646,6 +1648,7 @@ function handleFile(file) {
       document.getElementById('hplcInspectBtn').style.display='block';
       document.getElementById('hplcCsvHeaderBtn').style.display='block';
       document.getElementById('hplcPdfHeaderBtn').style.display='block';
+      document.getElementById('hplcExpReportBtn').style.display='block';
       document.getElementById('hdrVline').style.display='block';
 
       // initialize HPLC layer (detect signal groups, build state)
@@ -1705,7 +1708,7 @@ function toggleTheme() {
 </script>
 
 <footer>
-  NitaD, Univ Paris-Saclay &middot; Version 1.2.2 — TDMS reader + HPLC analyzer &middot; 2 May 2026
+  NitaD, Univ Paris-Saclay &middot; Version 1.2.2 — TDMS reader + HPLC analyzer &middot; May 15, 2026
 </footer>
 
 <div id="channelPreview"></div>
@@ -1736,7 +1739,7 @@ const HPLC = {
     results: new Map(),    // groupName -> { baseline, smoothed, peaks, fitGlobal }
     view: { xMin:0, xMax:1, yMin:0, yMax:1 },
     auto: true,            // auto-detect signal groups on load
-    filter: 'signal',      // 'signal' | 'pressure' | 'stabilization' | 'all'
+    filter: 'hplc',        // 'hplc' | 'pressure' | 'temperature' | 'stabilization' | 'all'
     fitting: false,        // true while a fit is running (used for busy cursor)
     // Zoom mode for wheel & box-zoom: 'xy' (both axes), 'x' (X only), 'y' (Y only)
     zoomMode: 'xy',
@@ -1761,59 +1764,91 @@ function hplcDetectSignalGroups() {
     ? groupCreationOrder.filter(n => n in parsedGroups)
     : Object.keys(parsedGroups);
 
+  // Group-name based classification — runs even when the group has no raw
+  // data yet (e.g. an aborted Temperature run). The "category" tells the UI
+  // which filter bucket to put the group in; empty groups are still shown
+  // in the list (marked with isEmpty) so the user knows the run was expected.
+  const classifyByName = (gName) => {
+    if (/stabili[sz]ation/i.test(gName))           return 'stabilization';
+    if (/^temp(erature)?\b|^temp[\s_0-9]/i.test(gName)) return 'temperature';
+    if (/^pressure\b|^pression\b|^p_/i.test(gName)) return 'pressure';
+    if (/^hplc\b|^signal[\s_]|^chrom|^uv\b/i.test(gName)) return 'hplc';
+    return null; // unknown by name — must be inferred from channel names
+  };
+  // Known log/text groups we surface in the Exp Report but NOT in the plot list.
+  const isLogGroup = (gName) =>
+    /^ledger$/i.test(gName) || /^history$/i.test(gName) || /experiment.*note|^notes?$/i.test(gName);
+
   for (const gName of order) {
     if (gName === '(root)') continue;
+    if (isLogGroup(gName)) continue; // text-only sidecars; not plottable
+
     const g = parsedGroups[gName];
     const chNames = Object.keys(g.channels);
-    if (chNames.length < 2) continue;
 
-    // pick best time + signal candidates
+    // Numeric channels (need >5 values to be considered "real" data).
     const numericChannels = chNames.filter(cn => {
       const vals = g.channels[cn].obj.values || [];
       return vals.length > 5 && typeof vals[0] === 'number';
     });
-    if (numericChannels.length < 2) continue;
 
-    let timeCh = numericChannels.find(cn => TIME_RX.test(cn));
-    let sigCh  = numericChannels.find(cn => SIGNAL_RX.test(cn) && cn !== timeCh);
+    const nameCategory = classifyByName(gName);
+    const hasData = numericChannels.length >= 2;
 
-    // fallback: if no name match, use channel with monotonically increasing values as time,
-    // and any other numeric channel as signal
-    if (!timeCh) {
-      for (const cn of numericChannels) {
-        const v = g.channels[cn].obj.values;
-        if (v.length > 3 && v[1] > v[0] && v[v.length-1] > v[Math.floor(v.length/2)]) {
-          timeCh = cn; break;
+    // ── Case 1: group has data — pick time + signal channels and add it ──
+    if (hasData) {
+      let timeCh = numericChannels.find(cn => TIME_RX.test(cn));
+      let sigCh  = numericChannels.find(cn => SIGNAL_RX.test(cn) && cn !== timeCh);
+
+      // fallback: monotonically increasing → time, anything else → signal
+      if (!timeCh) {
+        for (const cn of numericChannels) {
+          const v = g.channels[cn].obj.values;
+          if (v.length > 3 && v[1] > v[0] && v[v.length-1] > v[Math.floor(v.length/2)]) {
+            timeCh = cn; break;
+          }
         }
       }
+      if (!sigCh) sigCh = numericChannels.find(cn => cn !== timeCh);
+      if (!timeCh || !sigCh) continue;
+
+      // Category from name first, then fall back to channel-unit hints
+      const isPressureByUnit = /bar|psi|^pa$|kpa|mpa/i.test(sigCh);
+      const isTemperatureByUnit = /deg\s*c|°c|kelvin|^k$/i.test(sigCh);
+      const category = nameCategory
+        || (isTemperatureByUnit ? 'temperature'
+          : isPressureByUnit    ? 'pressure'
+          : 'other');
+
+      sgs.push({
+        name: gName,
+        color: HPLC.COLORS[ci++ % HPLC.COLORS.length],
+        timeChannel: timeCh,
+        signalChannel: sigCh,
+        channelOptions: numericChannels,
+        isPressureLike: category === 'pressure' || category === 'stabilization',
+        category,
+        isEmpty: false,
+      });
+      continue;
     }
-    if (!sigCh) sigCh = numericChannels.find(cn => cn !== timeCh);
-    if (!timeCh || !sigCh) continue;
 
-    // Classify the group:
-    //   signal        — actual chromatograms (Signal X, etc.)
-    //   pressure      — pump pressure traces (Pressure X, P_*)
-    //   stabilization — stabilization/baseline runs (*stabilization* in name)
-    //   other         — anything else with time + numeric signal
-    const isStabilization = /stabili[sz]ation/i.test(gName);
-    const isPressure = /pressure|pression|^p_|^p[\s\-]/i.test(gName) ||
-                       /bar|psi|pa|kpa|mpa/i.test(sigCh);
-    const isSignal = /^signal[\s_]|^chrom|^uv\b/i.test(gName);
-    let category;
-    if (isStabilization) category = 'stabilization';
-    else if (isPressure) category = 'pressure';
-    else if (isSignal) category = 'signal';
-    else category = 'other';
-
-    sgs.push({
-      name: gName,
-      color: HPLC.COLORS[ci++ % HPLC.COLORS.length],
-      timeChannel: timeCh,
-      signalChannel: sigCh,
-      channelOptions: numericChannels,
-      isPressureLike: isPressure || isStabilization,
-      category,
-    });
+    // ── Case 2: group is empty (or has < 2 numeric channels) but we
+    //    recognize its NAME as a known category — surface it anyway so the
+    //    user sees the bucket exists. Plotting/fitting will be a no-op. ──
+    if (nameCategory) {
+      sgs.push({
+        name: gName,
+        color: HPLC.COLORS[ci++ % HPLC.COLORS.length],
+        timeChannel: chNames[0] || null,
+        signalChannel: chNames[1] || chNames[0] || null,
+        channelOptions: chNames,
+        isPressureLike: nameCategory === 'pressure' || nameCategory === 'stabilization',
+        category: nameCategory,
+        isEmpty: true,
+      });
+    }
+    // Otherwise: not enough data to plot and no name we recognize → skip.
   }
   return sgs;
 }
@@ -1831,13 +1866,16 @@ function hplcResetForNewFile() {
   HPLC.state.sigGroups = hplcDetectSignalGroups();
   HPLC.state.sigGroups.forEach(hplcRefreshGroupData);
 
-  // pre-select only true signal chromatograms by default; user can change filter
-  // to include pressure / stabilization if needed
-  const trueSignals = HPLC.state.sigGroups.filter(g => g.category === 'signal');
-  const fallback = HPLC.state.sigGroups.filter(g => g.category !== 'pressure' && g.category !== 'stabilization');
-  const initialSelection = trueSignals.length ? trueSignals : (fallback.length ? fallback : HPLC.state.sigGroups);
-  HPLC.state.selected = new Set(initialSelection.map(g => g.name));
-  HPLC.state.filter = trueSignals.length ? 'signal' : 'all';
+  // At open, select ONLY the first HPLC chromatogram by default. The user can
+  // add more from the list. This keeps the initial view clean on files that
+  // contain many cycles (HPLC 0, HPLC 1, …).
+  const hplcGroups = HPLC.state.sigGroups.filter(g => g.category === 'hplc');
+  const fallback = HPLC.state.sigGroups.filter(g => g.category !== 'pressure' && g.category !== 'stabilization' && g.category !== 'temperature');
+  const firstPick = hplcGroups.length ? [hplcGroups[0]]
+                  : (fallback.length ? [fallback[0]]
+                  : (HPLC.state.sigGroups.length ? [HPLC.state.sigGroups[0]] : []));
+  HPLC.state.selected = new Set(firstPick.map(g => g.name));
+  HPLC.state.filter = hplcGroups.length ? 'hplc' : 'all';
   HPLC.state.results.clear();
 
   // exit HPLC mode if active so when re-entered it reflects the new file
@@ -1879,7 +1917,7 @@ function toggleHPLCMode() {
 
 /* ───────────── Tree (HPLC mode)
    In HPLC mode the left panel shows:
-     1. A filter dropdown (Signals only / Pressure / Stabilization / All)
+     1. A filter dropdown (HPLC / Pressure / Temperature / Stabilization / All)
      2. Select all / None / Invert buttons that act on the VISIBLE list
      3. A list of cards — one per group, with a checkbox + color swatch + name
      4. Optional "⚙" toggle on each card to override the auto-detected
@@ -1905,7 +1943,7 @@ function hplcRenderTree() {
   }
 
   // category counts (for the dropdown labels)
-  const counts = { signal:0, pressure:0, stabilization:0, other:0, all: HPLC.state.sigGroups.length };
+  const counts = { hplc:0, pressure:0, temperature:0, stabilization:0, other:0, all: HPLC.state.sigGroups.length };
   HPLC.state.sigGroups.forEach(sg => { counts[sg.category] = (counts[sg.category]||0) + 1; });
 
   // ── Filter bar: dropdown + select buttons + summary ──
@@ -1913,8 +1951,9 @@ function hplcRenderTree() {
   bar.className = 'hplc-filter-bar';
   bar.innerHTML = `
     <select id="hplcFilterSel" title="Show only groups in this category">
-      <option value="signal" ${HPLC.state.filter==='signal'?'selected':''}>Signals only (${counts.signal})</option>
+      <option value="hplc" ${HPLC.state.filter==='hplc'?'selected':''}>HPLC (${counts.hplc})</option>
       <option value="pressure" ${HPLC.state.filter==='pressure'?'selected':''}>Pressure (${counts.pressure})</option>
+      ${counts.temperature ? `<option value="temperature" ${HPLC.state.filter==='temperature'?'selected':''}>Temperature (${counts.temperature})</option>` : ''}
       <option value="stabilization" ${HPLC.state.filter==='stabilization'?'selected':''}>Stabilization (${counts.stabilization})</option>
       ${counts.other ? `<option value="other" ${HPLC.state.filter==='other'?'selected':''}>Other (${counts.other})</option>` : ''}
       <option value="all" ${HPLC.state.filter==='all'?'selected':''}>All (${counts.all})</option>
@@ -1944,6 +1983,7 @@ function hplcRenderTree() {
       const visible = hplcVisibleGroups();
       const act = btn.dataset.act;
       visible.forEach(sg => {
+        if (sg.isEmpty) return; // skip empty groups — nothing to plot/fit
         const wasSel = HPLC.state.selected.has(sg.name);
         let willSel;
         if (act === 'all') willSel = true;
@@ -1988,14 +2028,17 @@ function hplcRenderTree() {
 
   for (const sg of visibleGroups) {
     const isActive = HPLC.state.selected.has(sg.name);
+    const isEmpty = sg.isEmpty === true;
     const card = document.createElement('div');
-    card.className = 'hplc-sg-item' + (isActive ? ' active' : '');
+    card.className = 'hplc-sg-item' + (isActive ? ' active' : '') + (isEmpty ? ' empty' : '');
+    if (isEmpty) card.style.opacity = '0.55';
+    const metaText = isEmpty ? 'empty' : `${sg.time.length}pts`;
     card.innerHTML = `
-      <input type="checkbox" ${isActive?'checked':''} aria-label="Include ${esc(sg.name)}">
+      <input type="checkbox" ${isActive?'checked':''} ${isEmpty?'disabled':''} aria-label="Include ${esc(sg.name)}">
       <span class="swatch" style="background:${sg.color}"></span>
       <span class="name">${esc(sg.name)}</span>
-      <span class="meta">${sg.time.length}pts</span>
-      <button class="cfg-btn" title="Override auto-detected channel mapping" aria-label="Channel mapping">⚙</button>
+      <span class="meta" title="${isEmpty?'No data recorded for this group':''}">${metaText}</span>
+      <button class="cfg-btn" title="Override auto-detected channel mapping" aria-label="Channel mapping" ${isEmpty?'disabled':''}>⚙</button>
       <button class="rm-btn" title="Remove this chromatogram from the list (file is not modified)" aria-label="Remove">×</button>
     `;
     list.appendChild(card);
@@ -2003,6 +2046,7 @@ function hplcRenderTree() {
     // checkbox handler
     card.querySelector('input').addEventListener('change', (e) => {
       e.stopPropagation();
+      if (isEmpty) { e.target.checked = false; return; }
       if (e.target.checked) HPLC.state.selected.add(sg.name);
       else { HPLC.state.selected.delete(sg.name); HPLC.state.results.delete(sg.name); }
       card.classList.toggle('active', e.target.checked);
@@ -2017,6 +2061,7 @@ function hplcRenderTree() {
     // also: clicking the row (anywhere except the gear/remove buttons) toggles
     card.addEventListener('click', (e) => {
       if (e.target.matches('input,button,select,option')) return;
+      if (isEmpty) return;
       const cb = card.querySelector('input');
       cb.checked = !cb.checked;
       cb.dispatchEvent(new Event('change'));
@@ -3946,10 +3991,725 @@ async function hplcExportPDF() {
     drawFooter(pageNum, totalPages);
   }
 
-  doc.save(fileName.replace(/\.tdms$/i,'') + '_report.pdf');
-  hplcToast('PDF report exported');
+  doc.save(fileName.replace(/\.tdms$/i,'') + '_hplc_report.pdf');
+  hplcToast('HPLC report exported');
 }
 
+
+
+/* ───────────── Experimental Report (Exp Report)
+   A PDF that summarizes the *experimental conditions* of the run, separate
+   from the per-peak HPLC fit report. Includes:
+     • Temperature trace(s) if present
+     • Pressure trace(s) if present  (all cycles overlaid)
+     • Experiment/Notes  (free-text notes recorded at the start of the run)
+     • Ledger            (state snapshots keyed by cycle index)
+     • History           (event log entries keyed by cycle index)
+   Does NOT require a fit to have been run. */
+async function hplcExportExpReport() {
+  if (!parsedGroups || Object.keys(parsedGroups).length === 0) {
+    alert('Open a TDMS file first.'); return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const fileName = document.getElementById('statusText').textContent || 'data';
+
+  // Match the HPLC report palette exactly
+  const ACC  = [37, 99, 235];
+  const TXT  = [17, 17, 19];
+  const TXT2 = [42, 42, 45];
+  const MUTE = [107, 107, 112];
+  const RULE = [216, 216, 218];
+  const now = new Date();
+  let pageNum = 1;
+
+  // ─────────── helpers (same look as HPLC report) ───────────
+  const drawHeader = (subtitle) => {
+    doc.setDrawColor(...RULE); doc.setLineWidth(0.2);
+    doc.line(14, 18, pageW-14, 18);
+    doc.setFont('courier','bold'); doc.setTextColor(...TXT); doc.setFontSize(8.5);
+    doc.text('HPLC · ANALYZER', 14, 14);
+    doc.setFont('courier','normal'); doc.setTextColor(...MUTE); doc.setFontSize(8);
+    doc.text(subtitle.toUpperCase(), pageW-14, 14, { align: 'right' });
+  };
+  const drawFooter = () => {
+    doc.setDrawColor(...RULE); doc.setLineWidth(0.2);
+    doc.line(14, pageH-14, pageW-14, pageH-14);
+    doc.setFont('courier','normal'); doc.setFontSize(7.5); doc.setTextColor(...MUTE);
+    doc.text(fileName, 14, pageH-9);
+    doc.text(now.toISOString().slice(0,10), pageW/2, pageH-9, { align: 'center' });
+    doc.text('Page ' + pageNum, pageW-14, pageH-9, { align: 'right' });
+  };
+  const newPage = (subtitle) => {
+    drawFooter();
+    doc.addPage();
+    pageNum++;
+    drawHeader(subtitle);
+  };
+  // Section heading inside a page. Returns the y you can start writing under.
+  const sectionTitle = (label, y) => {
+    doc.setFont('helvetica','bold'); doc.setTextColor(...TXT); doc.setFontSize(13);
+    doc.text(label, 14, y);
+    doc.setDrawColor(...ACC); doc.setLineWidth(0.4);
+    doc.line(14, y+2, 14+30, y+2);
+    return y + 8;
+  };
+
+  /* ─────────── Collect groups by category from parsedGroups ───────────
+     We look at parsedGroups directly (not just HPLC.state.sigGroups) because:
+     • Temperature/Pressure groups may not be selected in the HPLC list
+     • Ledger / Experiment/Notes / History have string-only channels and so are
+       not present in sigGroups at all. */
+  const tempGroups = []; // [{name, time, data, tCh, dCh}]
+  const presGroups = []; // [{name, time, data, tCh, dCh}]
+  const hplcGroups = []; // [{name, time, data, tCh, dCh}]  — chromatograms
+  // Empty Temperature/Pressure groups (no recorded data) so the report can
+  // explicitly say "Temperature was recorded as empty" instead of silently
+  // omitting the section.
+  let emptyTempCount = 0;
+  let emptyPresCount = 0;
+  const ledger     = []; // [{label, time, text}]
+  const history    = []; // [{label, time, text}]
+  const notes      = []; // [{label, time, text}]
+
+  const order = (groupCreationOrder && groupCreationOrder.length)
+    ? groupCreationOrder.filter(n => n in parsedGroups)
+    : Object.keys(parsedGroups);
+
+  // Try to pick the time-like channel and the data channel for a numeric group.
+  const pickTimeData = (g) => {
+    const chNames = Object.keys(g.channels);
+    const numeric = chNames.filter(cn => {
+      const v = g.channels[cn].obj.values || [];
+      return v.length > 0 && typeof v[0] === 'number';
+    });
+    if (numeric.length < 2) return null;
+    // time = monotone increasing or name matches /time|rel.?time|t/
+    let tCh = numeric.find(cn => /^(time|rel\s*time|t|temps|sec|seconds?|min|minutes?)$/i.test(cn));
+    if (!tCh) {
+      tCh = numeric.find(cn => {
+        const v = g.channels[cn].obj.values;
+        return v.length > 2 && v[1] > v[0] && v[v.length-1] > v[Math.floor(v.length/2)];
+      });
+    }
+    if (!tCh) tCh = numeric[0];
+    const dCh = numeric.find(cn => cn !== tCh);
+    if (!dCh) return null;
+    const t = g.channels[tCh].obj.values, d = g.channels[dCh].obj.values;
+    const n = Math.min(t.length, d.length);
+    return { tCh, dCh, time: t.slice(0,n), data: d.slice(0,n) };
+  };
+
+  for (const gName of order) {
+    const g = parsedGroups[gName];
+    if (!g) continue;
+
+    // ── String-only "log" groups: Ledger / History / Experiment/Notes ──
+    if (/^ledger$/i.test(gName) || /^history$/i.test(gName) || /experiment.*note|^notes?$/i.test(gName)) {
+      const dest = /^ledger$/i.test(gName) ? ledger
+                : /^history$/i.test(gName) ? history
+                : notes;
+      for (const [cName, ch] of Object.entries(g.channels)) {
+        const v = ch.obj.values || [];
+        const t = ch.obj.properties && ch.obj.properties.time ? ch.obj.properties.time.value : '';
+        // values are strings — join in case there are multiple
+        const text = v.map(x => String(x)).filter(s => s.length).join('\n');
+        dest.push({ label: cName, time: t, text });
+      }
+      continue;
+    }
+
+    // ── Numeric groups: Temperature / Pressure / HPLC ──
+    const isTemp = /^temp(erature)?\b|^temp[\s_0-9]/i.test(gName);
+    const isPres = /^pressure\b|^pression\b|^p_/i.test(gName);
+    const isHplc = /^hplc\b|^signal[\s_]|^chrom|^uv\b/i.test(gName);
+    if (!isTemp && !isPres && !isHplc) continue;
+
+    const picked = pickTimeData(g);
+    if (!picked) {
+      // Group exists but has no usable numeric data (e.g. aborted run).
+      if (isTemp) emptyTempCount++;
+      else if (isPres) emptyPresCount++;
+      // Empty HPLC groups not separately counted — caller knows HPLC count from sigGroups
+      continue;
+    }
+    const ent = { name: gName, time: picked.time, data: picked.data,
+                  tCh: picked.tCh, dCh: picked.dCh };
+    if (isTemp)      tempGroups.push(ent);
+    else if (isPres) presGroups.push(ent);
+    else             hplcGroups.push(ent);
+  }
+
+  /* ─────────── PAGE 1 — Cover ─────────── */
+  drawHeader('Experimental Report');
+  doc.setFont('helvetica','bold'); doc.setTextColor(...TXT); doc.setFontSize(28);
+  doc.text('Experimental Report', 14, 38);
+  doc.setFont('helvetica','normal'); doc.setTextColor(...MUTE); doc.setFontSize(13);
+  doc.text('Run conditions: HPLC, temperature, pressure, ledger & history', 14, 47);
+
+  doc.setFont('courier','bold'); doc.setTextColor(...TXT); doc.setFontSize(10);
+  doc.text(fileName, 14, 60);
+
+  // Try to pull the file-level "log" property (e.g. "HPLC data, manual control")
+  let rootLog = '';
+  const rootObj = parsedGroups['(root)']?.groupObj;
+  if (rootObj?.properties?.log?.value) rootLog = String(rootObj.properties.log.value);
+
+  // KPI strip
+  const kpiY = 70, kpiH = 22;
+  const kpiW = (pageW - 28 - 9) / 4;
+  const kpis = [
+    ['HPLC',    String(HPLC.state.sigGroups.filter(g => g.category==='hplc').length)],
+    ['PRESS.',  String(presGroups.length)],
+    ['TEMP.',   String(tempGroups.length)],
+    ['NOTES',   String(notes.length + ledger.length + history.length)],
+  ];
+  kpis.forEach((k, i) => {
+    const xk = 14 + i * (kpiW + 3);
+    doc.setDrawColor(...RULE); doc.setLineWidth(0.25);
+    doc.rect(xk, kpiY, kpiW, kpiH);
+    doc.setFont('courier','normal'); doc.setFontSize(7); doc.setTextColor(...MUTE);
+    doc.text(k[0], xk+3, kpiY+5.5);
+    doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(...TXT);
+    doc.text(k[1], xk+3, kpiY+17);
+  });
+
+  // File metadata block
+  let metaY = kpiY + kpiH + 10;
+  doc.setFont('courier','bold'); doc.setFontSize(8.5); doc.setTextColor(...MUTE);
+  doc.text('FILE INFORMATION', 14, metaY);
+  doc.setDrawColor(...RULE); doc.setLineWidth(0.2);
+  doc.line(14, metaY+1.5, pageW-14, metaY+1.5);
+  metaY += 7;
+
+  const metaRow = (k, v) => {
+    doc.setFont('courier','normal'); doc.setFontSize(9); doc.setTextColor(...MUTE);
+    doc.text(k, 14, metaY);
+    doc.setTextColor(...TXT2);
+    const wrapped = doc.splitTextToSize(String(v || '—'), pageW - 28 - 38);
+    doc.text(wrapped, 52, metaY);
+    metaY += wrapped.length * 5;
+  };
+  metaRow('File',     fileName);
+  metaRow('Log',      rootLog);
+  metaRow('Exported', now.toISOString().replace('T',' ').slice(0,19) + ' UTC');
+  metaRow('Cycles',   String(HPLC.state.sigGroups.filter(g => g.category==='hplc').length) +
+                      ' HPLC, ' + presGroups.length + ' pressure, ' + tempGroups.length + ' temperature');
+
+  drawFooter();
+
+  /* ─────────── Plot pages ───────────
+     Reuse a tiny chart drawer (similar to hplcDrawChartToPDF but for arbitrary
+     {time,data} pairs, not sigGroups with fits). */
+  const drawTracePlot = (x, y, w, h, traces, opts) => {
+    opts = opts || {};
+    const M = { l: 18, r: 6, t: 4, b: 12 };
+    const pw = w - M.l - M.r, ph = h - M.t - M.b;
+    let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+    for (const tr of traces) {
+      for (let i=0;i<tr.time.length;i++) {
+        const ti = tr.time[i], di = tr.data[i];
+        if (!Number.isFinite(ti) || !Number.isFinite(di)) continue;
+        if (ti<xmin) xmin=ti; if (ti>xmax) xmax=ti;
+        if (di<ymin) ymin=di; if (di>ymax) ymax=di;
+      }
+    }
+    if (!(xmax > xmin) || !(ymax > ymin)) {
+      doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.setTextColor(...MUTE);
+      doc.text('No usable data.', x + 4, y + h/2);
+      return;
+    }
+    const yPad = (ymax - ymin) * 0.08 || Math.abs(ymax)*0.05 || 0.001;
+    ymin -= yPad; ymax += yPad;
+    const xToMm = t => x + M.l + (t-xmin)/(xmax-xmin)*pw;
+    const yToMm = v => y + M.t + ph - (v-ymin)/(ymax-ymin)*ph;
+
+    // grid
+    doc.setDrawColor(225); doc.setLineWidth(0.1);
+    const xT = hplcNiceTicks(xmin, xmax, 8);
+    const yT = hplcNiceTicks(ymin, ymax, 5);
+    for (const t of xT) doc.line(xToMm(t), y+M.t, xToMm(t), y+M.t+ph);
+    for (const t of yT) doc.line(x+M.l, yToMm(t), x+M.l+pw, yToMm(t));
+
+    // axes
+    doc.setDrawColor(60); doc.setLineWidth(0.3);
+    doc.line(x+M.l, y+M.t, x+M.l, y+M.t+ph);
+    doc.line(x+M.l, y+M.t+ph, x+M.l+pw, y+M.t+ph);
+
+    // tick labels
+    doc.setFont('courier','normal'); doc.setFontSize(7.5); doc.setTextColor(80);
+    for (const t of xT) doc.text(t.toFixed(1), xToMm(t), y+M.t+ph+3, { align: 'center' });
+    const yFmt = (Math.abs(ymax) < 1e-2 || Math.abs(ymax) > 1e4)
+                  ? (v => v.toExponential(1))
+                  : (v => v.toFixed(2));
+    for (const t of yT) doc.text(yFmt(t), x+M.l-1, yToMm(t)+1, { align: 'right' });
+    // axis titles
+    doc.setFontSize(8); doc.setTextColor(60);
+    doc.text(opts.xLabel || 'time', x+M.l+pw/2, y+h-1, { align: 'center' });
+    if (opts.yLabel) {
+      // sideways label on the y-axis
+      doc.text(opts.yLabel, x+3, y+M.t+ph/2, { angle: 90, align: 'center' });
+    }
+
+    // traces
+    const palette = ['#2563eb','#0891b2','#dc2626','#059669','#b45309','#7c3aed','#db2777','#0d9488'];
+    traces.forEach((tr, i) => {
+      const c = hplcHexToRgb(tr.color || palette[i % palette.length]);
+      doc.setDrawColor(c[0], c[1], c[2]);
+      doc.setLineWidth(0.25);
+      for (let j=1;j<tr.time.length;j++) {
+        const a = tr.time[j-1], b = tr.time[j];
+        const va = tr.data[j-1], vb = tr.data[j];
+        if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(va) || !Number.isFinite(vb)) continue;
+        doc.line(xToMm(a), yToMm(va), xToMm(b), yToMm(vb));
+      }
+    });
+
+    // legend (top-right inside the plot)
+    if (traces.length > 1 || (traces[0] && traces[0].name)) {
+      const legX = x + M.l + pw - 2;
+      let legY = y + M.t + 4;
+      doc.setFont('courier','normal'); doc.setFontSize(7);
+      traces.forEach((tr, i) => {
+        const c = hplcHexToRgb(tr.color || palette[i % palette.length]);
+        doc.setDrawColor(c[0], c[1], c[2]); doc.setLineWidth(0.8);
+        doc.line(legX - 6, legY - 1, legX - 1, legY - 1);
+        doc.setTextColor(60);
+        doc.text(tr.name || '', legX - 7, legY, { align: 'right' });
+        legY += 3.5;
+      });
+    }
+  };
+
+  // Decide whether we need a plot page
+  const hasPlots = (tempGroups.length > 0) || (presGroups.length > 0) || (hplcGroups.length > 0)
+                 || (emptyTempCount > 0)   || (emptyPresCount > 0);
+  if (hasPlots) {
+    newPage('Plots');
+    let y = 26;
+    y = sectionTitle('Conditions', y);
+
+    const plotW = pageW - 28;
+    const plotH = 80; // a touch shorter so two plots can fit on one page
+
+    // Helper: draw one labelled section (header line + plot OR empty placeholder).
+    // Auto page-breaks if there isn't enough vertical room. Returns the new y.
+    const drawPlotSection = (label, traces, opts, emptyMsg) => {
+      const needed = plotH + 12; // plot + header line + gap
+      if (y + needed > pageH - 18) {
+        newPage('Plots');
+        y = 26;
+        y = sectionTitle('Conditions (cont.)', y);
+      }
+      // header
+      doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(...TXT2);
+      doc.text(label, 14, y);
+      doc.setFont('courier','normal'); doc.setFontSize(8); doc.setTextColor(...MUTE);
+      doc.text(opts.subtitle || '', pageW-14, y, { align: 'right' });
+      y += 3;
+      if (traces && traces.length > 0) {
+        drawTracePlot(14, y, plotW, plotH, traces, opts);
+        y += plotH + 6;
+      } else {
+        // Draw an empty plot frame with the placeholder message inside
+        doc.setDrawColor(...RULE); doc.setLineWidth(0.2);
+        doc.rect(14, y, plotW, 20);
+        doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.setTextColor(...MUTE);
+        doc.text(emptyMsg, 14 + plotW/2, y + 12, { align: 'center' });
+        y += 24;
+      }
+    };
+
+    // ── HPLC ─────────────────────────────────────────────────
+    if (hplcGroups.length > 0) {
+      const traces = hplcGroups.map(g => ({ name: g.name, time: g.time, data: g.data }));
+      drawPlotSection('HPLC', traces, {
+        xLabel: hplcGroups[0].tCh || 'time',
+        yLabel: hplcGroups[0].dCh || 'signal',
+        subtitle: hplcGroups.length + ' trace' + (hplcGroups.length===1?'':'s'),
+      });
+    } else {
+      drawPlotSection('HPLC', null,
+        { subtitle: '0 traces' },
+        'No HPLC data recorded.');
+    }
+
+    // ── Temperature ──────────────────────────────────────────
+    if (tempGroups.length > 0) {
+      const traces = tempGroups.map(g => ({ name: g.name, time: g.time, data: g.data }));
+      drawPlotSection('Temperature', traces, {
+        xLabel: tempGroups[0].tCh || 'time',
+        yLabel: tempGroups[0].dCh || '°C',
+        subtitle: tempGroups.map(g => g.name).join(', '),
+      });
+    } else if (emptyTempCount > 0) {
+      drawPlotSection('Temperature', null,
+        { subtitle: emptyTempCount + ' group' + (emptyTempCount===1?'':'s') + ', empty' },
+        'Temperature group(s) present but no data was recorded.');
+    } else {
+      drawPlotSection('Temperature', null,
+        { subtitle: '—' },
+        'No Temperature group in this file.');
+    }
+
+    // ── Pressure ─────────────────────────────────────────────
+    if (presGroups.length > 0) {
+      const traces = presGroups.map(g => ({ name: g.name, time: g.time, data: g.data }));
+      drawPlotSection('Pressure', traces, {
+        xLabel: presGroups[0].tCh || 'time',
+        yLabel: presGroups[0].dCh || 'P',
+        subtitle: presGroups.length + ' trace' + (presGroups.length===1?'':'s'),
+      });
+    } else if (emptyPresCount > 0) {
+      drawPlotSection('Pressure', null,
+        { subtitle: emptyPresCount + ' group' + (emptyPresCount===1?'':'s') + ', empty' },
+        'Pressure group(s) present but no data was recorded.');
+    } else {
+      drawPlotSection('Pressure', null,
+        { subtitle: '—' },
+        'No Pressure group in this file.');
+    }
+  }
+
+  /* ─────────── Text sections: Notes / Ledger / History ───────────
+     Each starts on its own page. Long entry bodies flow line-by-line across
+     pages (instead of being moved whole) so we never leave a page blank with
+     just a heading. Ledger entries are heuristically parsed as tabular
+     records — one row per logical event, with columns
+     [relative time, command, device, value] — and rendered as a grid.
+
+     The expected ledger format from the LabVIEW VI is delimiter-separated
+     (tab, comma, or semicolon) with multiple rows per channel value. We
+     detect the delimiter automatically and infer column meanings from
+     header rows or position. If parsing fails (free-text ledger or unknown
+     format), we fall through to the plain-text rendering. */
+
+  /* Try many delimiter strategies and pick the best.
+     Each strategy turns a string blob into rows of cells.
+     Scoring favours: (a) many rows, (b) consistent column count, (c) >=3 cols
+     (since we want time/command/device/value or similar).
+
+     Returns { headers, rows, strategy } or null if nothing reasonable parsed.
+  */
+  const parseLedgerBlob = (blob) => {
+    if (!blob || typeof blob !== 'string') return null;
+    const trimmed = blob.replace(/^\s+|\s+$/g, '');
+    if (!trimmed.length) return null;
+
+    // Candidate row-splitters: newline (LF, CRLF, mixed) and common record
+    // separators that might appear when LabVIEW writes "rows" on one line.
+    const rowSplitters = [
+      { name: 'nl',    rx: /\r?\n/ },
+      { name: ';nl',   rx: /\r?\n|;(?=\s|\S)/ }, // ; or newline
+    ];
+    // Candidate column-splitters: ordered roughly by specificity (more specific
+    // delimiters first so we don't accidentally split on a stray comma when
+    // the real delimiter is a tab).
+    const colSplitters = [
+      { name: 'tab',         split: l => l.split('\t') },
+      { name: ' | ',         split: l => l.split(/\s*\|\s*/) },
+      { name: ' - ',         split: l => l.split(/\s+-\s+/) },
+      { name: '; ',          split: l => l.split(/\s*;\s*/) },
+      { name: ', ',          split: l => l.split(/\s*,\s*/) },
+      { name: '  +',         split: l => l.split(/\s{2,}/) },
+      // Single-space split — only useful when fields are simple words, so it
+      // scores low when fields contain spaces. Still keep it as a last resort.
+      { name: 'sp',          split: l => l.split(/\s+/) },
+    ];
+
+    // Score a candidate (rows of cells)
+    const score = (rows) => {
+      if (rows.length === 0) return -Infinity;
+      const sizes = rows.map(r => r.length);
+      const counts = {};
+      for (const s of sizes) counts[s] = (counts[s]||0)+1;
+      const mode = +Object.entries(counts).sort((a,b)=>b[1]-a[1])[0][0];
+      if (mode < 2) return -Infinity;
+      const consistency = counts[mode] / rows.length; // 0..1
+      // Bonus for matching the canonical 3 or 4 column shape
+      const shapeBonus = (mode === 4 ? 1.0 : mode === 3 ? 0.7 : mode === 5 ? 0.5 : 0.2);
+      // Bonus for many rows (a 1-row "table" is barely a table)
+      const rowBonus = Math.min(rows.length, 20) / 20; // 0..1
+      return consistency * 2 + shapeBonus + rowBonus;
+    };
+
+    let best = null;
+    let bestRows = null;
+
+    // ── Strategy A: split into rows by newline-ish, then split each row ──
+    for (const rs of rowSplitters) {
+      const lines = trimmed.split(rs.rx).map(l => l.trim()).filter(l => l.length);
+      if (lines.length === 0) continue;
+      for (const cs of colSplitters) {
+        const rows = lines.map(l => cs.split(l).map(c => c.trim()));
+        const s = score(rows);
+        if (best === null || s > best.score) {
+          best = { score: s, strategy: 'A:'+rs.name+'/'+cs.name };
+          bestRows = rows;
+        }
+      }
+    }
+
+    // ── Strategy B: assume single-line blob with N values per record.
+    //    Split the whole blob by a delimiter, then chunk into rows of 4 ──
+    if (!/\n/.test(trimmed)) {
+      for (const cs of colSplitters) {
+        const flat = cs.split(trimmed).map(c => c.trim()).filter(c => c.length);
+        if (flat.length < 4) continue;
+        for (const cols of [4, 3, 5]) {
+          if (flat.length % cols !== 0) continue;
+          const rows = [];
+          for (let i=0;i<flat.length;i+=cols) rows.push(flat.slice(i, i+cols));
+          const s = score(rows) + 0.3; // small bonus — exact divisibility is suggestive
+          if (best === null || s > best.score) {
+            best = { score: s, strategy: 'B:chunk-'+cols+'/'+cs.name };
+            bestRows = rows;
+          }
+        }
+      }
+    }
+
+    // Need at least a halfway-decent score: 2 rows OR 1 row with 3+ cells.
+    if (!bestRows || best.score < 1.0) return null;
+    if (bestRows.length === 1 && bestRows[0].length < 3) return null;
+
+    // Header detection: first row entirely non-numeric AND any cell matches
+    // a header-like word.
+    const headerHint = /^(rel.*time|time|t|command|cmd|device|param|value|val|action|event)$/i;
+    const firstAllText = bestRows[0].every(c => isNaN(Number(c)) && c.length < 30);
+    const firstHasHint = bestRows[0].some(c => headerHint.test(c));
+    const hasHeader = firstAllText && firstHasHint && bestRows.length > 1;
+
+    const canon = ['rel. time', 'command', 'device', 'value'];
+    let dataRows;
+    if (hasHeader) {
+      // Try to map header columns onto canon columns by keyword.
+      const hdr = bestRows[0].map(s => s.toLowerCase());
+      const colMap = canon.map(cName => {
+        const k = cName.split(/\s+/)[0].replace('.','');
+        return hdr.findIndex(h => h.includes(k));
+      });
+      dataRows = bestRows.slice(1).map(r =>
+        canon.map((_, i) => (colMap[i] >= 0 ? (r[colMap[i]] || '') : ''))
+      );
+    } else {
+      // Positional: take up to first 4 cells.
+      dataRows = bestRows.map(r => [r[0]||'', r[1]||'', r[2]||'', r[3]||'']);
+    }
+
+    return { headers: canon, rows: dataRows, strategy: best.strategy, raw: trimmed };
+  };
+
+  // Draw a small table at (x,y) with given column widths. Auto page-breaks
+  // by row. Returns the final y after the last row.
+  const drawLedgerTable = (parsed, y, opts) => {
+    const cols = parsed.headers;
+    const innerW = pageW - 28;
+    // proportional column widths: time gets a bit more, value the rest
+    const ratios = [0.18, 0.22, 0.22, 0.38];
+    const colW = ratios.map(r => r * innerW);
+    const colX = [];
+    let ax = 14;
+    for (let i=0;i<colW.length;i++){ colX.push(ax); ax += colW[i]; }
+
+    const rowH = 5.2;
+    const padX = 1.5;
+
+    const drawHeaderRow = (yy) => {
+      doc.setFillColor(245,245,247);
+      doc.rect(14, yy-3.6, innerW, rowH-0.4, 'F');
+      doc.setFont('courier','bold'); doc.setFontSize(7.5); doc.setTextColor(...MUTE);
+      cols.forEach((c, i) => doc.text(c.toUpperCase(), colX[i]+padX, yy));
+      doc.setDrawColor(...RULE); doc.setLineWidth(0.15);
+      doc.line(14, yy+1.6, 14+innerW, yy+1.6);
+      return yy + rowH;
+    };
+
+    y = drawHeaderRow(y);
+
+    for (let r=0; r<parsed.rows.length; r++) {
+      const cells = parsed.rows[r];
+      // Wrap each cell to its column width
+      const wrapped = cells.map((cell, i) =>
+        doc.splitTextToSize(String(cell || ''), colW[i] - 2*padX));
+      const hLines = Math.max(...wrapped.map(w => w.length));
+      const blockH = hLines * 3.8 + 1.5;
+
+      // page break
+      if (y + blockH > pageH - 18) {
+        drawFooter();
+        doc.addPage(); pageNum++;
+        drawHeader(opts.titleCont);
+        y = 26;
+        y = sectionTitle(opts.titleCont, y);
+        y = drawHeaderRow(y);
+      }
+
+      // zebra
+      if (r % 2 === 1) {
+        doc.setFillColor(250,250,251);
+        doc.rect(14, y-3.6, innerW, blockH, 'F');
+      }
+
+      doc.setFont('courier','normal'); doc.setFontSize(8); doc.setTextColor(...TXT2);
+      cells.forEach((_, i) => {
+        const lines = wrapped[i];
+        for (let li=0; li<lines.length; li++) {
+          doc.text(lines[li], colX[i]+padX, y + li*3.8);
+        }
+      });
+      y += blockH;
+      doc.setDrawColor(...RULE); doc.setLineWidth(0.1);
+      doc.line(14, y-3.6, 14+innerW, y-3.6);
+    }
+    return y;
+  };
+
+  const textSection = (title, entries) => {
+    if (entries.length === 0) return;
+    newPage(title);
+    let y = 26;
+    y = sectionTitle(title, y);
+
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(...MUTE);
+    doc.text(entries.length + ' entr' + (entries.length===1?'y':'ies'), 14, y);
+    y += 6;
+
+    // ── Special case: Ledger — render the raw string content as-is ──
+    // (We tried structured parsing earlier but the format varies; just dumping
+    // the raw text is the most reliable presentation.)
+    if (/^ledger/i.test(title)) {
+      for (const e of entries) {
+        // label + timestamp on their own lines, then the raw string body in
+        // a monospaced font, wrapped to page width.
+        if (y + 12 > pageH - 18) {
+          drawFooter(); doc.addPage(); pageNum++; drawHeader(title + ' (cont.)');
+          y = 26; y = sectionTitle(title + ' (cont.)', y);
+        }
+        doc.setFont('courier','bold'); doc.setFontSize(9); doc.setTextColor(...ACC);
+        doc.text(e.label || '', 14, y); y += 4.5;
+        if (e.time && e.time !== e.label) {
+          doc.setFont('courier','normal'); doc.setFontSize(8); doc.setTextColor(...MUTE);
+          doc.text(String(e.time), 14, y); y += 4;
+        }
+        y += 2;
+
+        // Body: split on real newlines FIRST, then wrap each logical line.
+        // (jsPDF's splitTextToSize can return strings containing \n which then
+        // overlap when drawn — splitting first avoids that.)
+        doc.setFont('courier','normal'); doc.setFontSize(8.5); doc.setTextColor(...TXT2);
+        const maxW = pageW - 28;
+        const lineH = 4;
+        const logicalLines = (e.text || '(empty)').split(/\r?\n/);
+        for (const logical of logicalLines) {
+          // Wrap this logical line to page width
+          const wrapped = doc.splitTextToSize(logical.length ? logical : ' ', maxW);
+          for (const piece of wrapped) {
+            if (y + lineH > pageH - 18) {
+              drawFooter(); doc.addPage(); pageNum++; drawHeader(title + ' (cont.)');
+              y = 26; y = sectionTitle(title + ' (cont.)', y);
+              doc.setFont('courier','normal'); doc.setFontSize(8.5); doc.setTextColor(...TXT2);
+            }
+            // Guard: a piece could still contain a stray newline; strip it.
+            doc.text(String(piece).replace(/[\r\n]/g, ' '), 14, y);
+            y += lineH;
+          }
+        }
+        y += 4;
+        doc.setDrawColor(...RULE); doc.setLineWidth(0.15);
+        doc.line(14, y-1.5, pageW-14, y-1.5);
+        y += 2;
+      }
+      return;
+    }
+
+    // ── General case: plain-text entries with line-by-line flow ──
+    for (const e of entries) {
+      y = drawTextEntry(e, y, title);
+    }
+  };
+
+  // Draw one entry (label + timestamp + body) starting at y. The body wraps
+  // across pages line by line instead of being moved as a single block, so
+  // a long History/Notes entry no longer leaves the previous page blank.
+  // Returns the y after this entry.
+  function drawTextEntry(e, y, title) {
+    const maxW = pageW - 28;
+    // Split on real newlines FIRST, then wrap each logical line. jsPDF's
+    // splitTextToSize on text that contains embedded \n returns array entries
+    // that may themselves still contain \n — drawing those overlaps lines.
+    const splitAndWrap = (s) => {
+      const out = [];
+      for (const seg of String(s || '').split(/\r?\n/)) {
+        if (seg.length === 0) { out.push(''); continue; }
+        for (const w of doc.splitTextToSize(seg, maxW)) {
+          out.push(String(w).replace(/[\r\n]/g, ' '));
+        }
+      }
+      return out;
+    };
+
+    const labelLines = splitAndWrap(e.label || '');
+    const timeLines  = (e.time && e.label !== e.time) ? splitAndWrap(e.time) : [];
+    const bodyLines  = splitAndWrap(e.text || '(empty)');
+
+    // Header (label + time) is small enough that we keep it on one page.
+    const headH = labelLines.length*4.5 + timeLines.length*4 + 1;
+    if (y + headH + 6 > pageH - 18) {
+      drawFooter(); doc.addPage(); pageNum++; drawHeader(title + ' (cont.)');
+      y = 26; y = sectionTitle(title + ' (cont.)', y);
+    }
+
+    // label
+    doc.setFont('courier','bold'); doc.setFontSize(9); doc.setTextColor(...ACC);
+    for (const line of labelLines) { doc.text(line, 14, y); y += 4.5; }
+
+    // timestamp
+    if (timeLines.length) {
+      doc.setFont('courier','normal'); doc.setFontSize(8); doc.setTextColor(...MUTE);
+      for (const line of timeLines) { doc.text(line, 14, y); y += 4; }
+    }
+
+    // body — line by line, with mid-entry page break if needed
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(...TXT2);
+    const lineH = 4.2;
+    for (const line of bodyLines) {
+      if (y + lineH > pageH - 18) {
+        drawFooter(); doc.addPage(); pageNum++; drawHeader(title + ' (cont.)');
+        y = 26; y = sectionTitle(title + ' (cont.)', y);
+        doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(...TXT2);
+      }
+      doc.text(line, 14, y);
+      y += lineH;
+    }
+    y += 3;
+
+    // separator hairline
+    doc.setDrawColor(...RULE); doc.setLineWidth(0.15);
+    doc.line(14, y-1.5, pageW-14, y-1.5);
+    y += 2;
+    return y;
+  }
+
+  textSection('Experiment Notes', notes);
+  textSection('Ledger', ledger);
+  textSection('History', history);
+
+  // If we had no plots and no text sections at all, still drop a "nothing
+  // to report" note on the cover so the PDF isn't misleading.
+  if (!hasPlots && notes.length===0 && ledger.length===0 && history.length===0) {
+    doc.setFont('helvetica','italic'); doc.setFontSize(10); doc.setTextColor(...MUTE);
+    doc.text('No Temperature, Pressure, Notes, Ledger or History data found in this file.',
+             14, metaY + 8);
+  }
+
+  drawFooter();
+  doc.save(fileName.replace(/\.tdms$/i,'') + '_exp_report.pdf');
+  hplcToast('Experimental report exported');
+}
 
 
 function hplcHexToRgb(hex) {
