@@ -182,6 +182,9 @@
     border-color: var(--text);
   }
 
+  #newFileBtn {
+    font-weight: 700;
+  }
   /* ============ MAIN ============ */
   .main {
     flex: 1;
@@ -1708,7 +1711,7 @@ function toggleTheme() {
 </script>
 
 <footer>
-  NitaD, Univ Paris-Saclay &middot; Version 1.2.2 — TDMS reader + HPLC analyzer &middot; May 15, 2026
+  NitaD, Univ Paris-Saclay &middot; Version 1.3 — TDMS reader + HPLC analyzer &middot; May 30, 2026
 </footer>
 
 <div id="channelPreview"></div>
@@ -1732,7 +1735,7 @@ function toggleTheme() {
    ═══════════════════════════════════════════════════════════════════════ */
 
 const HPLC = {
-  COLORS: ['#2563eb','#0891b2','#dc2626','#059669','#b45309','#7c3aed','#db2777','#0d9488'],
+  COLORS: ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#ea580c', '#4f46e5'],
   state: {
     sigGroups: [],         // [{ name, color, timeChannel, signalChannel, time:[], signal:[], channelOptions:[], category }]
     selected: new Set(),   // set of group names
@@ -1858,7 +1861,7 @@ function hplcRefreshGroupData(sg) {
   const t = g.channels[sg.timeChannel]?.obj.values || [];
   const s = g.channels[sg.signalChannel]?.obj.values || [];
   const n = Math.min(t.length, s.length);
-  sg.time   = t.slice(0, n);
+  sg.time   = t.slice(0, n).map(val => val / 60);
   sg.signal = s.slice(0, n);
 }
 
@@ -2713,98 +2716,130 @@ function hplcFitPeaksOnResiduals(time, signal, baseline, opts) {
   return { baseline, corrected, smoothed: sm, peaks: dedupedPeaks };
 }
 
-/* ───────────── Run fit ───────────── */
-function hplcRunFit() {
+function createHplcWorker() {
+  const code = `
+    ${hplcSmooth.toString()}
+    ${hplcRollingBallBaseline.toString()}
+    ${hplcEstimateNoise.toString()}
+    ${hplcProminence.toString()}
+    ${hplcDetectPeaks.toString()}
+    ${hplcGaussian.toString()}
+    ${hplcEMG.toString()}
+    ${hplcFitLM.toString()}
+    ${hplcFWHM.toString()}
+    ${hplcAsym.toString()}
+    ${hplcFitPeaksOnResiduals.toString()}
+    ${hplcProcess.toString()}
+
+    self.onmessage = function(e) {
+      const { id, time, signal, opts } = e.data;
+      try {
+        const result = hplcProcess(time, signal, opts);
+        self.postMessage({ id, success: true, result });
+      } catch(err) {
+        self.postMessage({ id, success: false, error: err.message });
+      }
+    };
+  `;
+  return new Worker(URL.createObjectURL(new Blob([code], { type: 'application/javascript' })));
+}
+
+
+async function hplcRunFit() {
   const opts = {
     smoothWin: parseInt(document.getElementById('hplcSmooth').value) || 1,
     minHeightPct: parseFloat(document.getElementById('hplcMinH').value) || 2,
     minDist: parseFloat(document.getElementById('hplcMinD').value) || 0,
     model: document.getElementById('hplcModel').value,
-    // The no-baseline (audit) fit is computed lazily — only when the PDF is
-    // exported, since on a 12k-point raw signal it can take several seconds
-    // and the UI never displays it.
     alsoFitNoBaseline: false,
   };
+
   HPLC.state.results.clear();
-  // If the user was in add-peak mode, exit it — the existing manual peaks
-  // get wiped along with the auto-detected ones in HPLC.state.results.clear().
   if (HPLC.state.addingPeak) hplcToggleAddPeak();
   const sgs = HPLC.state.sigGroups.filter(g => HPLC.state.selected.has(g.name));
   if (sgs.length === 0) { hplcToast('Select at least one group'); return; }
 
-  // ── Restrict fit to the current X view range ──
-  // The user zooms/pans to the region of interest, then clicks Re-Fit.
-  // Only the data within [xMin, xMax] is sent to the fitter.
   const v = HPLC.state.view;
   const xLo = v ? v.xMin : -Infinity;
   const xHi = v ? v.xMax : Infinity;
 
-  // Show busy cursor + dim the interface so the user sees the fit is running
   HPLC.state.fitting = true;
   document.body.classList.add('hplc-busy');
   hplcToast(`Fitting ${sgs.length} group${sgs.length>1?'s':''}… (X range: ${isFinite(xLo)?xLo.toFixed(1):'–∞'} → ${isFinite(xHi)?xHi.toFixed(1):'∞'})`);
 
-  // defer so the toast and busy cursor can render
-  setTimeout(() => {
-    let totalPeaks = 0;
-    const t0 = performance.now();
-    try {
-      for (const sg of sgs) {
-        try {
-          // Slice the signal to the current X range. We keep indices so
-          // the baseline array aligns with the original signal for drawing.
-          let iLo = 0, iHi = sg.time.length - 1;
-          while (iLo < sg.time.length && sg.time[iLo] < xLo) iLo++;
-          while (iHi > 0 && sg.time[iHi] > xHi) iHi--;
-          // Need at least 10 points to do anything useful
-          if (iHi - iLo < 10) { iLo = 0; iHi = sg.time.length - 1; }
+  const t0 = performance.now();
+  let totalPeaks = 0;
 
-          const timeSub   = sg.time.slice(iLo, iHi + 1);
-          const signalSub = sg.signal.slice(iLo, iHi + 1);
+  // Spin up the Web Worker
+  const worker = createHplcWorker();
 
-          const r = hplcProcess(timeSub, signalSub, opts);
+  try {
+    // Map each selected group to a Promise that resolves when the worker finishes it
+    const fitPromises = sgs.map((sg, index) => {
+      return new Promise((resolve) => {
+        let iLo = 0, iHi = sg.time.length - 1;
+        while (iLo < sg.time.length && sg.time[iLo] < xLo) iLo++;
+        while (iHi > 0 && sg.time[iHi] > xHi) iHi--;
+        if (iHi - iLo < 10) { iLo = 0; iHi = sg.time.length - 1; }
 
-          // Re-map the result so that window indices and baseline refer
-          // back to the full signal (needed for chart drawing).
-          // Build a full-length baseline: flat outside the fit range,
-          // rolling-ball values inside.
-          const fullBaseline = new Array(sg.time.length).fill(0);
-          // Outside the fit range, use the edge baseline values so the
-          // dashed baseline line looks continuous.
-          const blLeft  = r.baseline[0];
-          const blRight = r.baseline[r.baseline.length - 1];
-          for (let i = 0; i < iLo; i++) fullBaseline[i] = blLeft;
-          for (let i = iLo; i <= iHi; i++) fullBaseline[i] = r.baseline[i - iLo];
-          for (let i = iHi + 1; i < sg.time.length; i++) fullBaseline[i] = blRight;
+        const timeSub = sg.time.slice(iLo, iHi + 1);
+        const signalSub = sg.signal.slice(iLo, iHi + 1);
 
-          // Shift peak window indices by iLo so chart drawing works
-          for (const pk of r.peaks) {
-            pk.window.lo += iLo;
-            pk.window.hi += iLo;
+        const handleMessage = (e) => {
+          if (e.data.id === index) {
+            worker.removeEventListener('message', handleMessage);
+            resolve({ sg, iLo, iHi, ...e.data });
           }
+        };
+        worker.addEventListener('message', handleMessage);
+        worker.postMessage({ id: index, time: timeSub, signal: signalSub, opts });
+      });
+    });
 
-          r.baseline = fullBaseline;
-          // Corrected signal — only meaningful inside the range, but
-          // keep full length for any downstream code that indexes it.
-          r.corrected = sg.signal.map((v, i) => v - fullBaseline[i]);
+    // Await all background processing
+    const results = await Promise.all(fitPromises);
 
-          HPLC.state.results.set(sg.name, r);
-          totalPeaks += r.peaks.length;
-        } catch (e) {
-          console.error('Fit failed for', sg.name, e);
-        }
+    // Process results back into the UI state
+    results.forEach(({ sg, iLo, iHi, success, result, error }) => {
+      if (!success) {
+        console.error('Fit failed for', sg.name, error);
+        return;
       }
-    } finally {
-      HPLC.state.fitting = false;
-      document.body.classList.remove('hplc-busy');
-    }
-    const dt = (performance.now() - t0) / 1000;
-    hplcRenderPeakTable();
-    hplcDraw();
-    hplcUpdateButtons();
-    hplcToast(`Fit complete · ${totalPeaks} peak${totalPeaks===1?'':'s'} across ${sgs.length} group${sgs.length===1?'':'s'} · ${dt.toFixed(1)}s`);
-  }, 30);
+
+      const fullBaseline = new Array(sg.time.length).fill(0);
+      const blLeft = result.baseline[0];
+      const blRight = result.baseline[result.baseline.length - 1];
+      for (let i = 0; i < iLo; i++) fullBaseline[i] = blLeft;
+      for (let i = iLo; i <= iHi; i++) fullBaseline[i] = result.baseline[i - iLo];
+      for (let i = iHi + 1; i < sg.time.length; i++) fullBaseline[i] = blRight;
+
+      result.peaks.forEach(pk => {
+        pk.window.lo += iLo;
+        pk.window.hi += iLo;
+      });
+
+      result.baseline = fullBaseline;
+      result.corrected = sg.signal.map((v, i) => v - fullBaseline[i]);
+
+      HPLC.state.results.set(sg.name, result);
+      totalPeaks += result.peaks.length;
+    });
+
+  } finally {
+    // Always clean up the worker and reset UI, even if something fails
+    worker.terminate();
+    HPLC.state.fitting = false;
+    document.body.classList.remove('hplc-busy');
+  }
+
+  const dt = (performance.now() - t0) / 1000;
+  hplcRenderPeakTable();
+  hplcDraw();
+  hplcUpdateButtons();
+  hplcToast(`Fit complete · ${totalPeaks} peak${totalPeaks===1?'':'s'} across ${sgs.length} group${sgs.length===1?'':'s'} · ${dt.toFixed(1)}s`);
 }
+
+
 
 /* ───────────── Peak table ───────────── */
 function hplcRenderPeakTable() {
@@ -3066,9 +3101,14 @@ function hplcAutoFitView() {
     }
   }
   if (!isFinite(xmin)) return;
-  const yPad = (ymax - ymin) * 0.08 || 0.001;
+  
+  // Improved padding: scales based on range, with a fallback for flatlines
+  const range = ymax - ymin;
+  const yPad = range > 0 ? range * 0.08 : Math.abs(ymax) * 0.1 || 0.1;
+  
   HPLC.state.view = { xMin: xmin, xMax: xmax, yMin: ymin - yPad, yMax: ymax + yPad };
 }
+
 
 function hplcNiceTicks(min, max, count) {
   if (max <= min) return [min];
@@ -3149,7 +3189,7 @@ function hplcDraw() {
   hplcCtx.fillStyle = ink;
   hplcCtx.font = "13px 'IBM Plex Mono', monospace";
   hplcCtx.textAlign = 'center'; hplcCtx.textBaseline = 'bottom';
-  hplcCtx.fillText('time', M.l + pw/2, H - 4);
+  hplcCtx.fillText('time (min)', M.l + pw/2, H - 4);
   hplcCtx.save();
   hplcCtx.translate(14, M.t + ph/2);
   hplcCtx.rotate(-Math.PI/2);
