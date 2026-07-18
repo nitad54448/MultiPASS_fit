@@ -239,7 +239,20 @@
   #fileInput { display: none; }
 
   /* ============ STATUS / DOTS ============ */
-  #statusBar { display: none !important; }
+  /* Hidden during normal operation, but showStatus() reveals it for errors.
+     (Previously `display:none !important` made even parse errors invisible.) */
+  #statusBar {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    font-size: 13px;
+  }
+  .dot.error { background: var(--error); }
+  .dot.loading { background: var(--warn); }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
   .dot.error { background: var(--error); }
   .dot.loading { background: var(--accent); animation: pulse 1s infinite; }
@@ -1091,6 +1104,7 @@ function parseTDMS(buffer) {
   const rdF32  = ()  => { const v=dv.getFloat32(p,true); p+=4; return v; };
   const rdF64  = ()  => { const v=dv.getFloat64(p,true); p+=8; return v; };
   const rdU64n = ()  => { const v=Number(dv.getBigUint64(p,true)); p+=8; return v; };
+  const rdI64n = ()  => { const v=Number(dv.getBigInt64(p,true));  p+=8; return v; };
   const rdStr  = ()  => { const l=rdU32(); const s=dec.decode(u8.subarray(p,p+l)); p+=l; return s; };
   const rdTS   = ()  => {
     const secLo=dv.getUint32(p+8,true), secHi=dv.getInt32(p+12,true);
@@ -1100,10 +1114,10 @@ function parseTDMS(buffer) {
 
   function rdPropVal(dtype) {
     switch(dtype) {
-      case 1:    return rdU8() << 0 | 0;  // sign-extend
+      case 1:    { const v = rdU8(); return v > 127 ? v - 256 : v; } // i8, sign-extended
       case 2:    return rdI16();
       case 3:    return rdI32();
-      case 4:    return rdU64n();
+      case 4:    return rdI64n();
       case 5:    return rdU8();
       case 6:    return rdU16();
       case 7:    return rdU32();
@@ -1234,31 +1248,46 @@ function parseTDMS(buffer) {
     if (hasRaw && segActiveObjs.length > 0) {
       if (!isInterleaved) {
         // Contiguous layout: all values of obj0, then obj1, …
-        let dpos = dataStart;
-        for (const { path, ri } of segActiveObjs) {
-          const { dtype, nvals, totalBytes } = ri;
-
-          if (dtype === 0x20) {
-            // String: [nvals × u32 end-offsets] then [raw string bytes]
-            const strDataStart = dpos + nvals * 4;
-            let prev = 0;
-            for (let i=0; i<nvals; i++) {
-              const endOff = dv.getUint32(dpos + i*4, true);
-              objects[path].values.push(dec.decode(u8.subarray(strDataStart+prev, strDataStart+endOff)));
-              prev = endOff;
-            }
-            dpos += totalBytes;
-          } else {
-            const sz = DTYPE_INFO[dtype]?.size;
-            if (!sz || sz <= 0) continue;
-            for (let i=0; i<nvals; i++) {
-              if (dpos + sz > dataEnd) break;
-              const v = rdRawVal(dtype, dpos, le);
-              if (v !== null) objects[path].values.push(v);
-              dpos += sz;
-            }
+        // IMPORTANT: per the TDMS spec, this whole layout ("chunk") may
+        // repeat back-to-back multiple times inside one segment when data is
+        // streamed without new metadata. Previously only the FIRST chunk was
+        // read, silently dropping the rest. We now loop until the segment's
+        // raw region is exhausted.
+        let chunkBytes = 0;
+        for (const { ri } of segActiveObjs) {
+          if (ri.dtype === 0x20) chunkBytes += ri.totalBytes;
+          else {
+            const csz = DTYPE_INFO[ri.dtype]?.size;
+            if (csz && csz > 0) chunkBytes += csz * ri.nvals;
           }
         }
+        let dpos = dataStart;
+        do {
+          for (const { path, ri } of segActiveObjs) {
+            const { dtype, nvals, totalBytes } = ri;
+
+            if (dtype === 0x20) {
+              // String: [nvals × u32 end-offsets] then [raw string bytes]
+              const strDataStart = dpos + nvals * 4;
+              let prev = 0;
+              for (let i=0; i<nvals; i++) {
+                const endOff = dv.getUint32(dpos + i*4, true);
+                objects[path].values.push(dec.decode(u8.subarray(strDataStart+prev, strDataStart+endOff)));
+                prev = endOff;
+              }
+              dpos += totalBytes;
+            } else {
+              const sz = DTYPE_INFO[dtype]?.size;
+              if (!sz || sz <= 0) continue;
+              for (let i=0; i<nvals; i++) {
+                if (dpos + sz > dataEnd) break;
+                const v = rdRawVal(dtype, dpos, le);
+                if (v !== null) objects[path].values.push(v);
+                dpos += sz;
+              }
+            }
+          }
+        } while (chunkBytes > 0 && dpos + chunkBytes <= dataEnd);
       } else {
         // Interleaved: one sample of each object per cycle
         const cycleSize = segActiveObjs.reduce((acc, {ri}) => {
@@ -1322,7 +1351,10 @@ function esc(s) {
 
 
 function showStatus(msg, subMsg='', state='ok', stats=null) {
-  document.getElementById('statusBar').style.display = 'flex';
+  // The status bar is hidden by design during normal operation, but errors
+  // must reach the user: reveal it for the 'error' state (and echo a toast).
+  document.getElementById('statusBar').style.display = state === 'error' ? 'flex' : 'none';
+  if (state === 'error') { try { hplcToast(msg); } catch (_) {} }
   document.getElementById('statusDot').className = 'dot '+state;
   document.getElementById('statusText').textContent = msg;
   document.getElementById('statusSubText').textContent = subMsg;
@@ -1681,6 +1713,9 @@ function handleFile(file) {
       console.error(err);
     }
   };
+  reader.onerror = () => {
+    showStatus('Could not read file: ' + (reader.error && reader.error.message || 'unknown error'), '', 'error');
+  };
   reader.readAsArrayBuffer(file);
 }
 
@@ -1704,6 +1739,10 @@ document.querySelectorAll('.tab').forEach(tab=>{
 // version 1.0.2 : rajout d'un petit graphe preview
 //1.0.4 : les propriétés des groupes sont indiquées
 //1.2.0 : intégration analyse HPLC (détection pics, fit EMG/Gaussien, export PDF + CSV des fits)
+//1.4.1 : correctifs — erreurs de parsing visibles (statusBar), gestion d'erreurs du worker
+//        (plus de blocage 'busy'), colonne 'smoothed' réalignée dans le CSV après fit zoomé,
+//        lecture des segments TDMS multi-chunks, propriétés i8/i64 signées, erfcx précis
+//        dans le fit EMG, fits d'audit dans le worker, garde NaN dans les graphes PDF
 
 function toggleTheme() {
   const isDark = document.documentElement.classList.toggle('dark');
@@ -1714,7 +1753,7 @@ function toggleTheme() {
 </script>
 
 <footer>
-  NitaD, Univ Paris-Saclay &middot; Version 1.4 — TDMS reader + HPLC analyzer &middot; June 11, 2026
+  NitaD, Univ Paris-Saclay &middot; Version 1.4.1 — TDMS reader + HPLC analyzer &middot; July 18, 2026
 </footer>
 
 <div id="channelPreview"></div>
@@ -2423,12 +2462,17 @@ function hplcEMG(t, A, mu, sigma, tau) {
     return x >= 0 ? y : -y;
   }
 
-  // Scaled complementary error function to prevent overflow
+  // Scaled complementary error function erfcx(x) = exp(x²)·erfc(x) for x ≥ 0.
+  // Chebyshev-style fit (Numerical Recipes' erfcc with the exp(−x²) factor
+  // folded out): relative error < 1.2e-7 for all x ≥ 0, no overflow.
+  // The previous exp(x²)·(1−erf(x)) form lost all accuracy (and could even go
+  // negative) for x ≈ 3–5, because the A&S erf has ~1.5e-7 ABSOLUTE error
+  // while 1−erf(x) itself is smaller than that in this range.
   function erfcx(x) {
-    if (x > 5) {
-      return (1 / (Math.sqrt(Math.PI) * x)) * (1 - 0.5 / (x * x));
-    }
-    return Math.exp(x * x) * (1 - erf(x));
+    const t = 1 / (1 + 0.5 * x);
+    return t * Math.exp(-1.26551223 + t*(1.00002368 + t*(0.37409196 +
+      t*(0.09678418 + t*(-0.18628806 + t*(0.27886807 + t*(-1.13520398 +
+      t*(1.48851587 + t*(-0.82215223 + t*0.17087277)))))))));
   }
 
   if (z > 0) {
@@ -2739,6 +2783,52 @@ function createHplcWorker() {
   return new Worker(URL.createObjectURL(new Blob([code], { type: 'application/javascript' })));
 }
 
+/* Post one job to the fit worker and resolve with its reply. Rejects if the
+   worker itself errors (script parse failure, blob workers blocked by CSP,
+   etc.), so callers can never await forever on a reply that will never come. */
+function hplcWorkerJob(worker, id, payload) {
+  return new Promise((resolve, reject) => {
+    const onMsg = (e) => { if (e.data.id !== id) return; cleanup(); resolve(e.data); };
+    const onErr = (e) => { cleanup(); reject(new Error((e && e.message) || 'Worker failed')); };
+    const cleanup = () => {
+      worker.removeEventListener('message', onMsg);
+      worker.removeEventListener('error', onErr);
+    };
+    worker.addEventListener('message', onMsg);
+    worker.addEventListener('error', onErr);
+    worker.postMessage({ id, ...payload });
+  });
+}
+
+/* Compute the "no baseline" audit fits for a list of {sg, r} entries in the
+   background worker (previously this ran on the main thread and could freeze
+   the tab on long traces). On any failure the entry falls back to an empty
+   peak list so exports still proceed. */
+async function hplcComputeNoBaselineAudits(entries, opts) {
+  if (!entries.length) return;
+  let worker = null;
+  try {
+    worker = createHplcWorker();
+    await Promise.all(entries.map(({ sg, r }, index) =>
+      hplcWorkerJob(worker, index, {
+        time: sg.time, signal: sg.signal,
+        opts: { ...opts, baseline: 'none' },
+      }).then(data => {
+        r.noBaseline = data.success
+          ? { peaks: data.result.peaks, corrected: data.result.corrected }
+          : { peaks: [], corrected: sg.signal.slice() };
+      })
+    ));
+  } catch (e) {
+    console.error('No-baseline audit failed:', e);
+    entries.forEach(({ sg, r }) => {
+      if (!r.noBaseline) r.noBaseline = { peaks: [], corrected: sg.signal.slice() };
+    });
+  } finally {
+    if (worker) worker.terminate();
+  }
+}
+
 
 async function hplcRunFit() {
   const opts = {
@@ -2765,30 +2855,27 @@ async function hplcRunFit() {
   const t0 = performance.now();
   let totalPeaks = 0;
 
-  // Spin up the Web Worker
-  const worker = createHplcWorker();
+  // Spin up the Web Worker INSIDE try/finally so that a synchronous failure
+  // (e.g. blob workers blocked by CSP) can never leave the busy state stuck.
+  let worker = null;
 
   try {
-    // Map each selected group to a Promise that resolves when the worker finishes it
+    worker = createHplcWorker();
+
+    // Map each selected group to a Promise that resolves when the worker
+    // finishes it. hplcWorkerJob rejects on worker-level errors, so the
+    // Promise.all below can no longer hang forever with a dead worker.
     const fitPromises = sgs.map((sg, index) => {
-      return new Promise((resolve) => {
-        let iLo = 0, iHi = sg.time.length - 1;
-        while (iLo < sg.time.length && sg.time[iLo] < xLo) iLo++;
-        while (iHi > 0 && sg.time[iHi] > xHi) iHi--;
-        if (iHi - iLo < 10) { iLo = 0; iHi = sg.time.length - 1; }
+      let iLo = 0, iHi = sg.time.length - 1;
+      while (iLo < sg.time.length && sg.time[iLo] < xLo) iLo++;
+      while (iHi > 0 && sg.time[iHi] > xHi) iHi--;
+      if (iHi - iLo < 10) { iLo = 0; iHi = sg.time.length - 1; }
 
-        const timeSub = sg.time.slice(iLo, iHi + 1);
-        const signalSub = sg.signal.slice(iLo, iHi + 1);
+      const timeSub = sg.time.slice(iLo, iHi + 1);
+      const signalSub = sg.signal.slice(iLo, iHi + 1);
 
-        const handleMessage = (e) => {
-          if (e.data.id === index) {
-            worker.removeEventListener('message', handleMessage);
-            resolve({ sg, iLo, iHi, ...e.data });
-          }
-        };
-        worker.addEventListener('message', handleMessage);
-        worker.postMessage({ id: index, time: timeSub, signal: signalSub, opts });
-      });
+      return hplcWorkerJob(worker, index, { time: timeSub, signal: signalSub, opts })
+        .then(data => ({ sg, iLo, iHi, ...data }));
     });
 
     // Await all background processing
@@ -2801,12 +2888,19 @@ async function hplcRunFit() {
         return;
       }
 
-      const fullBaseline = new Array(sg.time.length).fill(0);
+      const n = sg.time.length;
+      const fullBaseline = new Array(n).fill(0);
       const blLeft = result.baseline[0];
       const blRight = result.baseline[result.baseline.length - 1];
       for (let i = 0; i < iLo; i++) fullBaseline[i] = blLeft;
       for (let i = iLo; i <= iHi; i++) fullBaseline[i] = result.baseline[i - iLo];
-      for (let i = iHi + 1; i < sg.time.length; i++) fullBaseline[i] = blRight;
+      for (let i = iHi + 1; i < n; i++) fullBaseline[i] = blRight;
+
+      // Re-align `smoothed` to full trace length as well — previously it was
+      // left as the fitted sub-range, so the CSV export silently paired the
+      // smoothed values with the wrong time rows after a zoomed fit.
+      const fullSmoothed = new Array(n).fill('');
+      for (let i = iLo; i <= iHi; i++) fullSmoothed[i] = result.smoothed[i - iLo];
 
       result.peaks.forEach(pk => {
         pk.window.lo += iLo;
@@ -2814,15 +2908,20 @@ async function hplcRunFit() {
       });
 
       result.baseline = fullBaseline;
+      result.smoothed = fullSmoothed;
       result.corrected = sg.signal.map((v, i) => v - fullBaseline[i]);
 
       HPLC.state.results.set(sg.name, result);
       totalPeaks += result.peaks.length;
     });
 
+  } catch (err) {
+    console.error('HPLC fit failed:', err);
+    hplcToast('Fit failed: ' + ((err && err.message) || err));
+    return; // the finally block below still runs and cleans up
   } finally {
     // Always clean up the worker and reset UI, even if something fails
-    worker.terminate();
+    if (worker) worker.terminate();
     HPLC.state.fitting = false;
     document.body.classList.remove('hplc-busy');
   }
@@ -3518,18 +3617,12 @@ async function hplcExportCSV() {
   if (needAudit.length) {
     document.body.classList.add('hplc-busy');
     hplcToast('Computing no-baseline audit fit for CSV…');
-    await new Promise(rs => setTimeout(rs, 30));
-    for (const sg of needAudit) {
-      const r = HPLC.state.results.get(sg.name);
-      try {
-        const zero = new Array(sg.signal.length).fill(0);
-        const noBl = hplcFitPeaksOnResiduals(sg.time, sg.signal, zero, opts);
-        r.noBaseline = { peaks: noBl.peaks, corrected: noBl.corrected };
-      } catch (e) {
-        r.noBaseline = { peaks: [], corrected: sg.signal.slice() };
-      }
+    try {
+      await hplcComputeNoBaselineAudits(
+        needAudit.map(sg => ({ sg, r: HPLC.state.results.get(sg.name) })), opts);
+    } finally {
+      document.body.classList.remove('hplc-busy');
     }
-    document.body.classList.remove('hplc-busy');
   }
 
   // Build columns
@@ -3644,23 +3737,21 @@ async function hplcExportPDF() {
     model: document.getElementById('hplcModel').value,
   };
   
-  document.body.classList.add('hplc-busy');
-  hplcToast('Computing no-baseline audit fit for PDF…');
-  await new Promise(r => setTimeout(r, 30));
-  
+  const pdfAuditEntries = [];
   for (const [groupName, r] of HPLC.state.results.entries()) {
     if (r.noBaseline) continue;
     const sg = HPLC.state.sigGroups.find(g => g.name === groupName);
-    if (!sg) continue;
+    if (sg) pdfAuditEntries.push({ sg, r });
+  }
+  if (pdfAuditEntries.length) {
+    document.body.classList.add('hplc-busy');
+    hplcToast('Computing no-baseline audit fit for PDF…');
     try {
-      const zero = new Array(sg.signal.length).fill(0);
-      const noBl = hplcFitPeaksOnResiduals(sg.time, sg.signal, zero, opts);
-      r.noBaseline = { peaks: noBl.peaks, corrected: noBl.corrected };
-    } catch (e) {
-      r.noBaseline = { peaks: [], corrected: sg.signal.slice() };
+      await hplcComputeNoBaselineAudits(pdfAuditEntries, opts);
+    } finally {
+      document.body.classList.remove('hplc-busy');
     }
   }
-  document.body.classList.remove('hplc-busy');
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -4756,13 +4847,21 @@ function hplcDrawChartToPDF(doc, x, y, w, h, sgs) {
   const M = { l: 18, r: 4, t: 4, b: 10 };
   const pw = w - M.l - M.r, ph = h - M.t - M.b;
 
-  // compute view from data
+  // compute view from data (skipping NaN/Infinity samples, which would
+  // otherwise corrupt the jsPDF line drawing)
   let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
   for (const g of sgs) {
     for (let i=0;i<g.time.length;i++) {
-      if (g.time[i]<xmin) xmin=g.time[i]; if (g.time[i]>xmax) xmax=g.time[i];
-      if (g.signal[i]<ymin) ymin=g.signal[i]; if (g.signal[i]>ymax) ymax=g.signal[i];
+      const ti = g.time[i], si = g.signal[i];
+      if (!Number.isFinite(ti) || !Number.isFinite(si)) continue;
+      if (ti<xmin) xmin=ti; if (ti>xmax) xmax=ti;
+      if (si<ymin) ymin=si; if (si>ymax) ymax=si;
     }
+  }
+  if (!(xmax > xmin) || !Number.isFinite(ymin) || !Number.isFinite(ymax)) {
+    doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.setTextColor(120);
+    doc.text('No usable data.', x + M.l + 4, y + h/2);
+    return;
   }
   const yPad = (ymax - ymin) * 0.08 || 0.001;
   ymin -= yPad; ymax += yPad;
@@ -4806,6 +4905,8 @@ function hplcDrawChartToPDF(doc, x, y, w, h, sgs) {
     }
     doc.setLineWidth(0.25);
     for (let i=1;i<g.time.length;i++) {
+      if (!Number.isFinite(g.time[i-1]) || !Number.isFinite(g.signal[i-1]) ||
+          !Number.isFinite(g.time[i])   || !Number.isFinite(g.signal[i])) continue;
       doc.line(xToMm(g.time[i-1]), yToMm(g.signal[i-1]),
                xToMm(g.time[i]),   yToMm(g.signal[i]));
     }
@@ -4815,6 +4916,8 @@ function hplcDrawChartToPDF(doc, x, y, w, h, sgs) {
       doc.setLineWidth(0.15);
       doc.setLineDashPattern([0.5, 0.7], 0);
       for (let i=1;i<g.time.length;i++) {
+        if (!Number.isFinite(g.time[i-1]) || !Number.isFinite(r.baseline[i-1]) ||
+            !Number.isFinite(g.time[i])   || !Number.isFinite(r.baseline[i])) continue;
         doc.line(xToMm(g.time[i-1]), yToMm(r.baseline[i-1]),
                  xToMm(g.time[i]),   yToMm(r.baseline[i]));
       }
