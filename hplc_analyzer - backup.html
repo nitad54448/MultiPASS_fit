@@ -1094,43 +1094,39 @@ function parseTDMS(buffer) {
   const dec = new TextDecoder('utf-8');
   const objects = {}; // path → { properties, rawDataInfo, values }
 
-  // ── read helpers (cursor-based). `le` defaults to true (little-endian)
-  // because the segment lead-in is always little-endian; metadata calls made
-  // from inside the segment loop below explicitly pass the segment's actual
-  // endianness (from the ToC kTocBigEndian flag) so that big-endian segments
-  // are read correctly instead of silently corrupting/overrunning. ──
+  // ── read helpers (little-endian, cursor-based) ──
   let p = 0;
-  const rdU8   = ()      => u8[p++];
-  const rdU16  = (le=true) => { const v=dv.getUint16(p,le);  p+=2; return v; };
-  const rdI16  = (le=true) => { const v=dv.getInt16(p,le);   p+=2; return v; };
-  const rdU32  = (le=true) => { const v=dv.getUint32(p,le);  p+=4; return v; };
-  const rdI32  = (le=true) => { const v=dv.getInt32(p,le);   p+=4; return v; };
-  const rdF32  = (le=true) => { const v=dv.getFloat32(p,le); p+=4; return v; };
-  const rdF64  = (le=true) => { const v=dv.getFloat64(p,le); p+=8; return v; };
-  const rdU64n = (le=true) => { const v=Number(dv.getBigUint64(p,le)); p+=8; return v; };
-  const rdI64n = (le=true) => { const v=Number(dv.getBigInt64(p,le));  p+=8; return v; };
-  const rdStr  = (le=true) => { const l=rdU32(le); const s=dec.decode(u8.subarray(p,p+l)); p+=l; return s; };
-  const rdTS   = (le=true) => {
-    const secLo=dv.getUint32(p+8,le), secHi=dv.getInt32(p+12,le);
+  const rdU8   = ()  => u8[p++];
+  const rdU16  = ()  => { const v=dv.getUint16(p,true);  p+=2; return v; };
+  const rdI16  = ()  => { const v=dv.getInt16(p,true);   p+=2; return v; };
+  const rdU32  = ()  => { const v=dv.getUint32(p,true);  p+=4; return v; };
+  const rdI32  = ()  => { const v=dv.getInt32(p,true);   p+=4; return v; };
+  const rdF32  = ()  => { const v=dv.getFloat32(p,true); p+=4; return v; };
+  const rdF64  = ()  => { const v=dv.getFloat64(p,true); p+=8; return v; };
+  const rdU64n = ()  => { const v=Number(dv.getBigUint64(p,true)); p+=8; return v; };
+  const rdI64n = ()  => { const v=Number(dv.getBigInt64(p,true));  p+=8; return v; };
+  const rdStr  = ()  => { const l=rdU32(); const s=dec.decode(u8.subarray(p,p+l)); p+=l; return s; };
+  const rdTS   = ()  => {
+    const secLo=dv.getUint32(p+8,true), secHi=dv.getInt32(p+12,true);
     p+=16;
     return new Date((secHi*4294967296+secLo-2082844800)*1000).toISOString();
   };
 
-  function rdPropVal(dtype, le=true) {
+  function rdPropVal(dtype) {
     switch(dtype) {
       case 1:    { const v = rdU8(); return v > 127 ? v - 256 : v; } // i8, sign-extended
-      case 2:    return rdI16(le);
-      case 3:    return rdI32(le);
-      case 4:    return rdI64n(le);
+      case 2:    return rdI16();
+      case 3:    return rdI32();
+      case 4:    return rdI64n();
       case 5:    return rdU8();
-      case 6:    return rdU16(le);
-      case 7:    return rdU32(le);
-      case 8:    return rdU64n(le);
-      case 9:    return rdF32(le);
-      case 10:   return rdF64(le);
-      case 0x20: return rdStr(le);
+      case 6:    return rdU16();
+      case 7:    return rdU32();
+      case 8:    return rdU64n();
+      case 9:    return rdF32();
+      case 10:   return rdF64();
+      case 0x20: return rdStr();
       case 0x21: return rdU8() !== 0;
-      case 0x44: return rdTS(le);
+      case 0x44: return rdTS();
       default:   return `[0x${dtype.toString(16)}]`;
     }
   }
@@ -1185,11 +1181,11 @@ function parseTDMS(buffer) {
     // ── Parse metadata ──
     if (hasMeta) {
       p = leadInEnd;
-      const numObjects = rdU32(le);
+      const numObjects = rdU32();
 
       for (let oi = 0; oi < numObjects; oi++) {
-        const path   = rdStr(le);
-        const rawIdx = rdU32(le); // byte length of raw data index block that follows
+        const path   = rdStr();
+        const rawIdx = rdU32(); // byte length of raw data index block that follows
 
         if (!objects[path]) objects[path] = { properties:{}, rawDataInfo:null, values:[] };
 
@@ -1199,11 +1195,11 @@ function parseTDMS(buffer) {
           // No raw data for this object in this segment
           ri = null;
           // Still need to read numProps (it comes right after rawIdx when no index block)
-          const numProps = rdU32(le);
+          const numProps = rdU32();
           for (let pi=0; pi<numProps; pi++) {
-            const pname = rdStr(le);
-            const ptype = rdU32(le);
-            const pval  = rdPropVal(ptype, le);
+            const pname = rdStr();
+            const ptype = rdU32();
+            const pval  = rdPropVal(ptype);
             objects[path].properties[pname] = { value: pval, type: DTYPE_INFO[ptype]?.name || `0x${ptype.toString(16)}` };
           }
           objects[path].rawDataInfo = null;
@@ -1213,11 +1209,11 @@ function parseTDMS(buffer) {
         if (rawIdx === 0x00000000) {
           // Same raw data layout as previous segment — ri unchanged, no index to read
           // numProps follows immediately
-          const numProps = rdU32(le);
+          const numProps = rdU32();
           for (let pi=0; pi<numProps; pi++) {
-            const pname = rdStr(le);
-            const ptype = rdU32(le);
-            const pval  = rdPropVal(ptype, le);
+            const pname = rdStr();
+            const ptype = rdU32();
+            const pval  = rdPropVal(ptype);
             objects[path].properties[pname] = { value: pval, type: DTYPE_INFO[ptype]?.name || `0x${ptype.toString(16)}` };
           }
           if (ri) segActiveObjs.push({ path, ri });
@@ -1225,14 +1221,14 @@ function parseTDMS(buffer) {
         }
 
         // New raw data index: read fields directly (numProps is the LAST field inside rawIdx)
-        const dtype = rdU32(le);
-        const dim   = rdU32(le); // always 1
-        const nvals = rdU64n(le);
+        const dtype = rdU32();
+        const dim   = rdU32(); // always 1
+        const nvals = rdU64n();
         let totalBytes = 0;
-        if (dtype === 0x20) totalBytes = rdU64n(le); // string type: total byte count
+        if (dtype === 0x20) totalBytes = rdU64n(); // string type: total byte count
 
         // numProps is the last u32 inside the rawIdx block
-        const numProps = rdU32(le);
+        const numProps = rdU32();
 
         ri = { dtype, nvals, totalBytes };
         objects[path].rawDataInfo = ri;
@@ -1240,9 +1236,9 @@ function parseTDMS(buffer) {
 
         // Properties follow immediately after rawIdx block
         for (let pi=0; pi<numProps; pi++) {
-          const pname = rdStr(le);
-          const ptype = rdU32(le);
-          const pval  = rdPropVal(ptype, le);
+          const pname = rdStr();
+          const ptype = rdU32();
+          const pval  = rdPropVal(ptype);
           objects[path].properties[pname] = { value: pval, type: DTYPE_INFO[ptype]?.name || `0x${ptype.toString(16)}` };
         }
       }
@@ -1275,7 +1271,7 @@ function parseTDMS(buffer) {
               const strDataStart = dpos + nvals * 4;
               let prev = 0;
               for (let i=0; i<nvals; i++) {
-                const endOff = dv.getUint32(dpos + i*4, le);
+                const endOff = dv.getUint32(dpos + i*4, true);
                 objects[path].values.push(dec.decode(u8.subarray(strDataStart+prev, strDataStart+endOff)));
                 prev = endOff;
               }
@@ -1757,7 +1753,7 @@ function toggleTheme() {
 </script>
 
 <footer>
-  NitaD, Univ Paris-Saclay &middot; Version 1.6 - TDMS reader + HPLC analyzer - 1 Sept 2026
+  NitaD, Univ Paris-Saclay &middot; Version 1.5 — TDMS reader + HPLC analyzer &middot; July 18, 2026
 </footer>
 
 <div id="channelPreview"></div>
