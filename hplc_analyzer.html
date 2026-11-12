@@ -1061,6 +1061,19 @@
 </div>
 
 <script>
+// Scan values with a fixed number of arguments, including for long TDMS traces.
+// Math.min/max retain their NaN, signed-zero and empty-input behavior.
+function arrayMin(values) {
+  let result = Infinity;
+  for (let i = 0; i < values.length; i++) result = Math.min(result, values[i]);
+  return result;
+}
+function arrayMax(values) {
+  let result = -Infinity;
+  for (let i = 0; i < values.length; i++) result = Math.max(result, values[i]);
+  return result;
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 //  TDMS Parser
 //
@@ -1442,8 +1455,8 @@ item.addEventListener('mouseenter', (e) => {
     const step = Math.max(1, Math.floor(numVals.length / POINTS));
     const plotData = numVals.filter((_, i) => i % step === 0);
     
-    const min = Math.min(...plotData);
-    const max = Math.max(...plotData);
+    const min = arrayMin(plotData);
+    const max = arrayMax(plotData);
     const range = (max - min) || 1;
     
     // 2px padding 
@@ -1536,8 +1549,8 @@ function selectChannel(path, gName, cName, obj) {
   const infoTab = document.getElementById('tab-info');
   const numVals = values.filter(v=>typeof v==='number');
   const hasStats= numVals.length>0;
-  const minV    = hasStats?Math.min(...numVals):null;
-  const maxV    = hasStats?Math.max(...numVals):null;
+  const minV    = hasStats?arrayMin(numVals):null;
+  const maxV    = hasStats?arrayMax(numVals):null;
   const meanV   = hasStats?numVals.reduce((a,b)=>a+b,0)/numVals.length:null;
   const stdV    = hasStats?Math.sqrt(numVals.reduce((a,b)=>a+(b-meanV)**2,0)/numVals.length):null;
 
@@ -1581,7 +1594,7 @@ async function exportCSV() {
   const useSemicolon = (1.1).toLocaleString().includes(',');
   const SEP = useSemicolon ? ';' : ',';
 
-  const numRows = Math.max(...columns.map(c => c.values.length));
+  const numRows = arrayMax(columns.map(c => c.values.length));
   const defaultName = (document.getElementById('statusText').textContent || 'export').replace(/\.tdms$/i,'') + '.csv';
 
   let writable = null;
@@ -2286,8 +2299,8 @@ function hplcRollingBallBaseline(y, opts = {}) {
     r = opts.radius;
   } else {
     const sm = hplcSmooth(y, 5);
-    const ymax = Math.max(...sm);
-    const ymin = Math.min(...sm);
+    const ymax = arrayMax(sm);
+    const ymin = arrayMin(sm);
     const range = ymax - ymin || 1;
     let widest = 0;
     for (let i = 1; i < n - 1; i++) {
@@ -2567,7 +2580,7 @@ function hplcFitLM(model, p0, x, y, opts = {}) {
 }
 
 function hplcFWHM(x, y) {
-  const ymax = Math.max(...y), half = ymax/2;
+  const ymax = arrayMax(y), half = ymax/2;
   let l=0, r=y.length-1;
   for (let i=0;i<y.length;i++) if (y[i]>=half) { l=i; break; }
   for (let i=y.length-1;i>=0;i--) if (y[i]>=half) { r=i; break; }
@@ -2580,7 +2593,7 @@ function hplcFWHM(x, y) {
 }
 
 function hplcAsym(x, y, frac) {
-  const ymax = Math.max(...y), h = ymax*frac;
+  const ymax = arrayMax(y), h = ymax*frac;
   let pi = 0; for (let i=0;i<y.length;i++) if (y[i]===ymax) { pi=i; break; }
   let l=null, r=null;
   for (let i=pi;i>=0;i--) if (y[i]<=h) { l=i; break; }
@@ -2629,7 +2642,7 @@ function hplcProcess(time, signal, opts) {
 function hplcFitPeaksOnResiduals(time, signal, baseline, opts) {
   const corrected = signal.map((v,i) => v - baseline[i]);
   const sm = hplcSmooth(corrected, opts.smoothWin);
-  const ymax = Math.max(...sm);
+  const ymax = arrayMax(sm);
   const minH = ymax * (opts.minHeightPct/100);
   const noise = hplcEstimateNoise(corrected);
   const peaksRaw = hplcDetectPeaks(time, sm, minH, opts.minDist, noise);
@@ -2705,7 +2718,7 @@ function hplcFitPeaksOnResiduals(time, signal, baseline, opts) {
       [A, mu, sigma, tau] = result.params;
       fit = xw.map(t => hplcEMG(t, A, mu, sigma, tau));
       area = A;            // EMG: A is integrated area
-      height = Math.max(...fit);
+      height = arrayMax(fit);
       let mv = -Infinity; tR = mu;
       for (let i=0;i<xw.length;i++) if (fit[i]>mv){ mv=fit[i]; tR=xw[i]; }
       fwhm = hplcFWHM(xw, fit);
@@ -2761,6 +2774,8 @@ function hplcFitPeaksOnResiduals(time, signal, baseline, opts) {
 
 function createHplcWorker() {
   const code = `
+    ${arrayMin.toString()}
+    ${arrayMax.toString()}
     ${hplcSmooth.toString()}
     ${hplcRollingBallBaseline.toString()}
     ${hplcEstimateNoise.toString()}
@@ -3124,7 +3139,7 @@ function hplcAddPeakAt(tClick, yClick) {
     [A, mu, sigma, tau] = result.params;
     fit = xw.map(t => hplcEMG(t, A, mu, sigma, tau));
     area = A;
-    height = Math.max(...fit);
+    height = arrayMax(fit);
     let mv = -Infinity; tR = mu;
     for (let i = 0; i < xw.length; i++) if (fit[i] > mv) { mv = fit[i]; tR = xw[i]; }
     fwhm = hplcFWHM(xw, fit);
@@ -3658,7 +3673,7 @@ async function hplcExportCSV() {
 
   const useSemi = (1.1).toLocaleString().includes(',');
   const SEP = useSemi ? ';' : ',';
-  const numRows = Math.max(...columns.map(c => c.values.length));
+  const numRows = arrayMax(columns.map(c => c.values.length));
 
   // Peak summary appended after the time-series block.
   // The area_no_baseline column lets the user sanity-check whether the
@@ -4665,7 +4680,7 @@ async function hplcExportExpReport() {
       // Wrap each cell to its column width
       const wrapped = cells.map((cell, i) =>
         doc.splitTextToSize(String(cell || ''), colW[i] - 2*padX));
-      const hLines = Math.max(...wrapped.map(w => w.length));
+      const hLines = arrayMax(wrapped.map(w => w.length));
       const blockH = hLines * 3.8 + 1.5;
 
       // page break

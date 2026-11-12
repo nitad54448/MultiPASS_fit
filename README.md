@@ -187,3 +187,18 @@ The application is a single HTML file that runs entirely in your browser. No dat
 
 ---
 *NitaD, Univ Paris-Saclay · v1.2.x · 30 April 2026*
+
+## Review issue 14: large channels
+
+Channel statistics, baseline estimation, peak metrics, manual peak heights and
+export sizing now scan arrays without passing every element as a function
+argument. This removes the argument-limit crash reproduced with 200,000 samples.
+The fit worker includes the same extrema helpers. Empty arrays, NaN, infinities
+and signed zero retain the previous Math.min/Math.max behavior.
+
+Run `node --test tests/*.test.cjs` with Node.js; no dependencies are required.
+Regression tests cover 200,000-sample extrema, channel statistics and automatic
+baseline estimation, a long peak with known width/asymmetry, Gaussian and EMG
+fits, and a real fit executed through the generated worker script. Browser and
+worker APIs are stubbed in the tests; the peak-fitting functions are the page's
+actual code.
