@@ -1124,9 +1124,10 @@ function parseTDMS(buffer) {
   const rdI64n = (le=true) => { const v=Number(dv.getBigInt64(p,le));  p+=8; return v; };
   const rdStr  = (le=true) => { const l=rdU32(le); const s=dec.decode(u8.subarray(p,p+l)); p+=l; return s; };
   const rdTS   = (le=true) => {
-    const secLo=dv.getUint32(p+8,le), secHi=dv.getInt32(p+12,le);
-    p+=16;
-    return new Date((secHi*4294967296+secLo-2082844800)*1000).toISOString();
+    const sec = Number(dv.getBigInt64(p + (le ? 8 : 0), le));
+    p += 16;
+    const d = new Date((sec - 2082844800) * 1000);
+    return Number.isFinite(d.getTime()) ? d.toISOString() : `[raw_sec:${sec}]`;
   };
 
   function rdPropVal(dtype, le=true) {
@@ -1153,17 +1154,18 @@ function parseTDMS(buffer) {
       case 1:    return dv.getInt8(dpos);
       case 2:    return dv.getInt16(dpos,le);
       case 3:    return dv.getInt32(dpos,le);
-      case 4:    { const lo=dv.getUint32(dpos,le),hi=dv.getInt32(dpos+4,le); return hi*4294967296+lo; }
+      case 4:    return Number(dv.getBigInt64(dpos,le));
       case 5:    return dv.getUint8(dpos);
       case 6:    return dv.getUint16(dpos,le);
       case 7:    return dv.getUint32(dpos,le);
-      case 8:    { const lo=dv.getUint32(dpos,le),hi=dv.getUint32(dpos+4,le); return hi*4294967296+lo; }
+      case 8:    return Number(dv.getBigUint64(dpos,le));
       case 9:    return dv.getFloat32(dpos,le);
       case 10:   return dv.getFloat64(dpos,le);
       case 0x21: return dv.getUint8(dpos) !== 0;
       case 0x44: {
-        const secLo=dv.getUint32(dpos+8,le), secHi=dv.getInt32(dpos+12,le);
-        return new Date((secHi*4294967296+secLo-2082844800)*1000).toISOString();
+        const sec = Number(dv.getBigInt64(dpos + (le ? 8 : 0), le));
+        const d = new Date((sec - 2082844800) * 1000);
+        return Number.isFinite(d.getTime()) ? d.toISOString() : `[raw_sec:${sec}]`;
       }
       default: return null;
     }
@@ -1339,9 +1341,10 @@ function parsePaths(objects) {
   const groups = {};
   groupCreationOrder = [];
   for (const [path, obj] of Object.entries(objects)) {
-    const m = path.match(/^\/'([^']+)'(?:\/'([^']+)')?$|^\/$/);
+    const m = path.match(/^\/'((?:[^']|'')+)'(?:\/'((?:[^']|'')+)')?$|^\/$/);
     if (!m) continue;
-    const gName = m[1] || '(root)', cName = m[2] || null;
+    const gName = m[1] !== undefined ? m[1].replace(/''/g, "'") : '(root)';
+    const cName = m[2] !== undefined ? m[2].replace(/''/g, "'") : null;
     if (!groups[gName]) { groups[gName] = { groupObj:null, channels:{} }; groupCreationOrder.push(gName); }
     if (cName) groups[gName].channels[cName] = { path, obj };
     else groups[gName].groupObj = obj;
